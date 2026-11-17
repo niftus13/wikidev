@@ -3,9 +3,13 @@
   "private": true,
   "packageManager": "pnpm@10.30.0",
   "scripts": {
-    "dev:web": "pnpm --filter @wikiblog/web dev",
-    "dev:api": "pnpm --filter @wikiblog/api dev",
+    "dev:web": "pnpm build:libs && pnpm --filter @wikiblog/web dev",
+    "dev:api": "pnpm build:libs && pnpm --filter @wikiblog/api dev",
+    "build:libs": "pnpm --filter './libs/*' -r build",
     "build": "pnpm -r build",
-    "typecheck": "pnpm --filter @wikiblog/api typecheck"
+    "typecheck": "pnpm build:libs && pnpm --filter @wikiblog/api typecheck"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
   }
 }

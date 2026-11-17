@@ -1,0 +1,12 @@
+CREATE TABLE books (
+  id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  space_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  slug VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  title VARCHAR(200) NOT NULL,
+  description TEXT NOT NULL,
+  deleted_at DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY books_space_slug_unique (space_id, slug),
+  CONSTRAINT books_space_fk FOREIGN KEY (space_id) REFERENCES spaces(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

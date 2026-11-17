@@ -7,6 +7,9 @@
     "build": "nuxt build"
   },
   "dependencies": {
+    "@wikiblog/dto": "workspace:*",
+    "@wikiblog/shared": "workspace:*",
+    "@wikiblog/types": "workspace:*",
     "nuxt": "4.6.4"
   }
 }
