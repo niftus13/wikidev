@@ -200,6 +200,13 @@
   실행되지 않는 위치임을 README에 적었습니다.
 - GitHub에서의 실제 실행은 아직 하지 않았습니다(push는 사용자 승인 후).
 
+### 2026-11-18: 운영 배포 요구사항 확정
+
+- 요구사항: [docs/checkpoints/ops-deploy.md](docs/checkpoints/ops-deploy.md). Q1 CDN은 보류, Q2~Q7은 추천안 A입니다.
+- 운영 빌드의 웹 프록시는 소켓 주소만 쓰므로, 호스트 nginx가 공개 포트로 넘기면 모든 요청이 Docker 게이트웨이 하나로 집계됩니다.
+  그래서 웹에 `WEB_TRUST_PROXY`(신뢰 hop의 XFF만 이어받음)를 추가합니다.
+- 구현은 아직 시작하지 않았습니다.
+
 ## 마일스톤
 
 | 단계 | 상태 | 진행 내용과 남은 작업 |
@@ -211,7 +218,7 @@
 | 공개 분류 | 구현 완료 | 카테고리·태그 API와 공개 필터; 플랫폼 관리·시드 보류 |
 | 작성자 화면 | 구현 완료 (브라우저 검증 남음) | 인증·책·페이지 편집·발행, 목차 이동·이력 복원, 분류 관리 UI; 실제 API 흐름·타입 검사·빌드 확인, 실제 브라우저·키보드·모바일 확인 필요 |
 | 사용자 공간 화면 | 구현 완료 (브라우저 검증 남음) | 공간 책 목록 API, `/@{handle}` 공개 공간, 내 공간 소개 편집, `@handle` 링크; SSR 응답·실제 API·타입 검사·빌드 확인, 실제 브라우저·키보드·모바일 확인 필요 ([요구사항](docs/checkpoints/user-space-ui.md)) |
-| 운영 | 진행 중 (운영 1·2 완료) | 운영 1: 프록시 신뢰 경계와 요청 제한 구현·검증 ([요구사항](docs/checkpoints/ops-proxy-rate-limit.md)); 운영 2: CI 워크플로 구현, 로컬 재현과 GitHub Actions 첫 실행(PR) 통과 ([요구사항](docs/checkpoints/ops-ci.md)); 남은 작업: E2E, 운영 배포(리버스 프록시·CDN 신뢰 체인 재설계, HTTPS, 캐시 정책 — [운영 배포 체크리스트](docs/checkpoints/ops-deploy-checklist.md)), 백업·모니터링 |
+| 운영 | 진행 중 (운영 1·2 완료) | 운영 1: 프록시 신뢰 경계와 요청 제한 구현·검증 ([요구사항](docs/checkpoints/ops-proxy-rate-limit.md)); 운영 2: CI 워크플로 구현, 로컬 재현과 GitHub Actions 첫 실행(PR) 통과 ([요구사항](docs/checkpoints/ops-ci.md)); 남은 작업: E2E, 운영 배포 요구사항 확정([요구사항](docs/checkpoints/ops-deploy.md), EC2·Docker·호스트 nginx·Let's Encrypt, CDN 보류; 리버스 프록시·CDN 신뢰 체인 재설계, HTTPS, 캐시 정책 — [운영 배포 체크리스트](docs/checkpoints/ops-deploy-checklist.md)), 백업·모니터링 |
 
 ## 다음 구현에 적용할 결정 사항
 
@@ -228,7 +235,7 @@
 - 작성자 분류 관리는 `/dashboard/categories`와 `/dashboard/books/{bookId}/categories`에서 하며, 태그는 태그 관리에서만 생성합니다.
 - 웹 프록시는 클라이언트가 보낸 IP 헤더를 버리고 자신이 본 주소로 `X-Forwarded-For`를 다시 쓰며, API는 `TRUST_PROXY`로 지정한 주소·대역만 신뢰합니다(Compose는 웹 컨테이너 고정 주소 하나). 모든 주소를 믿는 설정은 거부합니다. 프록시 시간 제한은 30초(504)이고 개발·운영 프록시 경로는 서버 라우트 하나로 통일합니다.
 - CI는 GitHub Actions 서비스 컨테이너(MySQL 8.4·Redis 7.4)에서 API를 직접 실행해 통합 테스트하고, 건너뛴 테스트가 있으면 실패합니다. PR과 `main` push(`wikiblog/**` 경로)에서 Node 24로 실행하며, 원격 push는 사용자 승인 후 합니다.
-- 운영 환경은 AWS EC2 인스턴스이며 앞단에 리버스 프록시와 CDN을 둡니다. 신뢰 체인과 운영용 이미지·Compose는 운영 배포에서 설계합니다([체크리스트](docs/checkpoints/ops-deploy-checklist.md)).
+- 운영 환경은 AWS EC2 인스턴스 안의 Docker입니다. 웹은 `127.0.0.1:3000`에 공개하고 호스트 nginx(Let's Encrypt)가 첫 hop으로 리버스 프록시합니다. CDN은 나중에 도입합니다. MySQL·Redis는 인스턴스 안 컨테이너(EBS), 마이그레이션은 서비스 교체 전 일회성 컨테이너, 공개 SSR은 캐시하지 않고 `/_nuxt/*`만 캐시, 이미지는 EC2에서 직접 빌드합니다([요구사항](docs/checkpoints/ops-deploy.md)).
 - 사용자 공간은 `/@{handle}`에 SSR로 공개하고, 대문자 handle은 소문자 URL로 301 리다이렉트합니다. 공간 소개는 일반 텍스트(최대 500자)이며 내 책 관리 상단에서 편집하고 즉시 공개합니다.
 
 ## 검증 기록
