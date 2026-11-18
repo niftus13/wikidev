@@ -2,6 +2,9 @@
   "name": "wikiblog",
   "private": true,
   "packageManager": "pnpm@10.30.0",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev:web": "pnpm build:libs && pnpm --filter @wikiblog/web dev",
     "dev:api": "pnpm build:libs && pnpm --filter @wikiblog/api dev",

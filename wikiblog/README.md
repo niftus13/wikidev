@@ -418,6 +418,47 @@ HTML 입력을 비활성화하고 출력 HTML을 정제합니다.
 플랫폼 카테고리는 조회만 가능하며 초기 데이터와 운영자 관리 API는 제공하지 않습니다.
 작성자 분류 관리 화면은 [작성자 분류 관리 화면](#작성자-분류-관리-화면)을 참고합니다.
 
+### CI
+
+GitHub Actions 워크플로는 **저장소 루트**의 `.github/workflows/wikiblog-ci.yml`입니다.
+Git 루트가 `wikis/`이고 GitHub은 루트의 `.github/workflows/`만 읽으므로, 설계안 §12에 적힌
+`wikiblog/.github/workflows/`에서는 실행되지 않습니다(`wikiblog/.github/`에는 AI 지침만 둡니다).
+모든 명령은 `wikiblog/`에서 실행합니다. 요구사항은 [docs/checkpoints/ops-ci.md](docs/checkpoints/ops-ci.md)입니다.
+
+- **실행 조건**: `wikiblog/**` 또는 워크플로 파일을 바꾼 PR, 같은 경로의 `main` push, 수동 실행(`workflow_dispatch`).
+  경로 필터에 걸리지 않는 PR에는 상태 검사가 생기지 않으므로, 브랜치 보호의 필수 검사로 지정할 때 고려합니다.
+  같은 브랜치·PR에서 새 실행이 시작되면 이전 실행은 취소됩니다. 권한은 `contents: read`뿐입니다.
+- **환경**: `ubuntu-24.04`, Node 24(Docker 이미지와 같음, `package.json`의 `engines.node`는 `>=24`),
+  pnpm은 `packageManager`의 10.30.0, pnpm 저장소 캐시, `pnpm install --frozen-lockfile`.
+- **정적 검사·단위 job**: `pnpm build:libs` → `pnpm typecheck` → `pnpm --filter @wikiblog/web typecheck` →
+  `pnpm --filter @wikiblog/api build` → API 테스트(통합 테스트는 건너뜀) → 웹 테스트 → `pnpm --filter @wikiblog/web build`.
+- **통합 job**: Redis 7.4는 서비스 컨테이너, MySQL 8.4는 job 안에서 `openssl rand`로 만든 일회용 비밀번호로
+  띄웁니다(서비스 컨테이너 설정은 job 시작 전에 정해져 job에서 만든 값을 넘길 수 없기 때문입니다. 포트는 러너의
+  `127.0.0.1`에만 엽니다). 비밀번호는 `::add-mask::`로 로그에서 가리고 저장소 시크릿은 쓰지 않습니다.
+  마이그레이션 → API(`node src/index.ts`)를 백그라운드로 실행 → `/api/health`가 `ok`가 될 때까지 최대 60초
+  대기(넘거나 API가 종료되면 API 로그를 출력하고 실패) → `INTEGRATION_TESTS=1`로 API 테스트를 실행합니다.
+  `APP_ORIGIN=http://localhost:3000`, `COOKIE_SECURE=false`이며 `TRUST_PROXY`는 두지 않습니다.
+- **건너뛴 테스트 금지**: 통합 job은 `node --test` 요약 줄(`ℹ tests N`, `ℹ skipped N`)을 읽어 요약이 없거나,
+  실행한 테스트가 0개이거나, `skipped`가 0이 아니면 실패합니다. 환경 변수가 빠져 통합 테스트가 조용히 건너뛰는 것을
+  막기 위해서입니다. 단위 job에서는 통합 테스트가 건너뛰는 것이 정상이므로 이 검사를 하지 않습니다.
+- 요청 제한은 끄지 않습니다. 실행마다 새 Redis를 쓰며, 현재 통합 테스트 한 번의 가입은 14회·로그인은 2회로
+  IP별 15분 20회 제한 안에 있습니다. 가입하는 테스트를 늘려 20회를 넘으면 429로 실패하므로 그때 다시 검토합니다.
+
+로컬에서 같은 검사를 돌리는 방법(정적 검사·단위 job과 같은 순서):
+
+```bash
+pnpm install --frozen-lockfile
+pnpm build:libs && pnpm typecheck && pnpm --filter @wikiblog/web typecheck
+pnpm --filter @wikiblog/api build
+pnpm --filter @wikiblog/api test && pnpm --filter @wikiblog/web test
+pnpm --filter @wikiblog/web build
+```
+
+개발 호스트의 Node가 24가 아니면 결과가 다를 수 있으므로, 깨끗한 `node:24` 컨테이너에 소스를 복사해
+(호스트의 `node_modules`는 쓰지 않음) 위 명령을 실행하는 것이 CI와 가장 가깝습니다.
+통합 job은 Compose 스택에서 `docker compose exec -T -e INTEGRATION_TESTS=1 api pnpm --filter @wikiblog/api test`를
+실행하고 끝의 요약에서 `ℹ skipped 0`을 확인하면 같은 범위를 검사합니다(Compose는 `TRUST_PROXY`를 설정하는 점만 다릅니다).
+
 ### 공유 패키지
 
 `libs/`의 각 디렉토리는 pnpm workspace 패키지이며 `@wikiblog/...`로 가져옵니다.
@@ -480,4 +521,4 @@ Claude Code에서는 `wikiblog` 폴더에서 실행하면 `CLAUDE.md`가 공통 
 VS Code의 **Chat: Open Customizations**에서 지침·스킬·에이전트의 검색 여부를 확인하고,
 새 대화에서 실제 작업과 리뷰를 시도해 적용 여부와 도구 사용을 확인합니다.
 상위 저장소 폴더를 워크스페이스로 열 때는 중첩된 `.github`의 자동 검색을 보장하지 않습니다.
-현재 CI 자동 검증은 구성하지 않았으며 지침과 에이전트는 테스트나 권한 통제의 대체물이 아닙니다.
+자동 검증은 [CI](#ci)가 담당하며 지침과 에이전트는 테스트나 권한 통제의 대체물이 아닙니다.

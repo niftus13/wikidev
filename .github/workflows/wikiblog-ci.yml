@@ -1,0 +1,187 @@
+# WikiBlog CI. Git 루트는 wikis/이고 GitHub은 루트의 .github/workflows만 읽으므로 이 파일은 루트에 둔다.
+# 모든 명령은 wikiblog/ 에서 실행한다. 요구사항: wikiblog/docs/checkpoints/ops-ci.md
+name: wikiblog-ci
+
+on:
+  pull_request:
+    paths:
+      - "wikiblog/**"
+      - ".github/workflows/wikiblog-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "wikiblog/**"
+      - ".github/workflows/wikiblog-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wikiblog-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    # shell: bash를 명시해야 GitHub이 -eo pipefail로 실행한다(파이프 앞 명령의 실패를 놓치지 않는다).
+    shell: bash
+    working-directory: wikiblog
+
+jobs:
+  static-unit:
+    name: 정적 검사·단위 테스트
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+        with:
+          # 버전은 wikiblog/package.json의 packageManager(pnpm@10.30.0)를 따른다.
+          package_json_file: wikiblog/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: wikiblog/pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build shared libraries
+        run: pnpm build:libs
+      - name: Typecheck API
+        run: pnpm typecheck
+      - name: Typecheck web
+        run: pnpm --filter @wikiblog/web typecheck
+      - name: Build API
+        run: pnpm --filter @wikiblog/api build
+      - name: API unit tests (integration tests are skipped here)
+        run: pnpm --filter @wikiblog/api test
+      - name: Web unit tests
+        run: pnpm --filter @wikiblog/web test
+      - name: Build web
+        run: pnpm --filter @wikiblog/web build
+
+  integration:
+    name: 통합 테스트 (MySQL·Redis·API)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      MYSQL_HOST: 127.0.0.1
+      MYSQL_DATABASE: wikiblog
+      MYSQL_USER: wikiblog
+      REDIS_URL: redis://127.0.0.1:6379
+      HOST: 127.0.0.1
+      PORT: "4000"
+      APP_ORIGIN: http://localhost:3000
+      COOKIE_SECURE: "false"
+      # TRUST_PROXY는 설정하지 않는다(직접 연결 주소로 요청 제한을 집계).
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: wikiblog/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: wikiblog/pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build shared libraries
+        run: pnpm build:libs
+      # 서비스 컨테이너의 env는 job 시작 전에 정해지므로 job 안에서 만든 비밀번호를 넘길 수 없다.
+      # 그래서 MySQL만 이 step에서 일회용 비밀번호로 직접 띄우고, 러너의 loopback에만 포트를 연다.
+      - name: Start MySQL 8.4 with one-time passwords
+        run: |
+          app_password="$(openssl rand -hex 24)"
+          root_password="$(openssl rand -hex 24)"
+          echo "::add-mask::${app_password}"
+          echo "::add-mask::${root_password}"
+          echo "MYSQL_PASSWORD=${app_password}" >> "$GITHUB_ENV"
+          MYSQL_PASSWORD="$app_password" MYSQL_ROOT_PASSWORD="$root_password" docker run --detach \
+            --name wikiblog-ci-mysql \
+            --publish 127.0.0.1:3306:3306 \
+            --env MYSQL_DATABASE --env MYSQL_USER --env MYSQL_PASSWORD --env MYSQL_ROOT_PASSWORD \
+            --health-cmd 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqladmin ping -h 127.0.0.1 -u root --silent' \
+            --health-interval 2s --health-timeout 5s --health-retries 60 \
+            mysql:8.4 > /dev/null
+      - name: Wait for MySQL
+        run: |
+          # 초기화 중 임시 서버는 TCP를 열지 않으므로 127.0.0.1 ping이 성공하면 최종 서버가 준비된 것이다.
+          deadline=$((SECONDS + 120))
+          until [ "$(docker inspect --format '{{.State.Health.Status}}' wikiblog-ci-mysql)" = healthy ]; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::MySQL did not become healthy within 120 seconds"
+              docker logs wikiblog-ci-mysql
+              exit 1
+            fi
+            sleep 2
+          done
+          echo "MySQL is healthy"
+      - name: Apply migrations
+        run: pnpm --filter @wikiblog/api migrate
+      - name: Start API in background
+        run: |
+          cd apps/api
+          nohup node src/index.ts > "$RUNNER_TEMP/api.log" 2>&1 &
+          echo "API_PID=$!" >> "$GITHUB_ENV"
+      - name: Wait for API health
+        run: |
+          deadline=$((SECONDS + 60))
+          until curl --silent --fail --max-time 2 http://127.0.0.1:4000/api/health | grep -q '"status":"ok"'; do
+            if ! kill -0 "$API_PID" 2> /dev/null; then
+              echo "::error::API process exited before becoming healthy"
+              cat "$RUNNER_TEMP/api.log"
+              exit 1
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::API /api/health was not ok within 60 seconds"
+              cat "$RUNNER_TEMP/api.log"
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "API is healthy"
+      - name: API tests with INTEGRATION_TESTS=1 (no skipped tests allowed)
+        run: |
+          log="$RUNNER_TEMP/api-test.log"
+          INTEGRATION_TESTS=1 NO_COLOR=1 pnpm --filter @wikiblog/api test 2>&1 | tee "$log"
+          # node --test의 기본(spec) reporter는 끝에 "ℹ tests N", "ℹ skipped N" 요약 줄을 한 번씩 출력한다.
+          # 요약을 찾지 못하거나 skipped가 0이 아니면 실패한다(환경 변수 누락으로 통합 테스트가 조용히 건너뛰는 것을 막는다).
+          summary="$(sed -E 's/\x1b\[[0-9;]*m//g' "$log")"
+          tests="$(printf '%s\n' "$summary" | sed -nE 's/^ℹ tests ([0-9]+)$/\1/p')"
+          skipped="$(printf '%s\n' "$summary" | sed -nE 's/^ℹ skipped ([0-9]+)$/\1/p')"
+          if [ "$(printf '%s' "$tests" | grep -c .)" -ne 1 ] || [ "$(printf '%s' "$skipped" | grep -c .)" -ne 1 ]; then
+            echo "::error::Could not find exactly one node --test summary (tests/skipped) in the output"
+            exit 1
+          fi
+          if [ "$tests" -eq 0 ]; then
+            echo "::error::No tests were run"
+            exit 1
+          fi
+          if [ "$skipped" -ne 0 ]; then
+            echo "::error::${skipped} test(s) were skipped; integration CI requires 0 skipped tests"
+            exit 1
+          fi
+          echo "tests=${tests} skipped=${skipped}"
+      - name: Show API log on failure
+        if: failure()
+        run: cat "$RUNNER_TEMP/api.log" 2> /dev/null || echo "No API log"
+      - name: Stop API and MySQL
+        if: always()
+        run: |
+          if [ -n "${API_PID:-}" ]; then kill "$API_PID" 2> /dev/null || true; fi
+          docker rm --force --volumes wikiblog-ci-mysql > /dev/null 2>&1 || true

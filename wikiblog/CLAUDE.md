@@ -31,4 +31,17 @@ docker compose up --build -d
 docker compose exec -T -e INTEGRATION_TESTS=1 api pnpm --filter @wikiblog/api test
 ```
 
+CI와 같은 검사 (워크플로: 저장소 루트 `.github/workflows/wikiblog-ci.yml`, Node 24, 설명은 README "CI"):
+
+```bash
+# 정적 검사·단위 job (같은 순서)
+pnpm install --frozen-lockfile
+pnpm build:libs && pnpm typecheck && pnpm --filter @wikiblog/web typecheck
+pnpm --filter @wikiblog/api build
+pnpm --filter @wikiblog/api test && pnpm --filter @wikiblog/web test
+pnpm --filter @wikiblog/web build
+# 통합 job 범위: 실제 MySQL·Redis·API 대상, 요약의 "ℹ skipped 0"을 확인 (CI는 0이 아니면 실패)
+docker compose exec -T -e INTEGRATION_TESTS=1 api pnpm --filter @wikiblog/api test
+```
+
 실행 방법·API 계약·미결 사항은 `README.md`, 구현 진행 상황은 `history.md`를 확인한다.

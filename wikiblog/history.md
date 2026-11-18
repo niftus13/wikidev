@@ -9,7 +9,7 @@
 사용자 공간 화면(`/@{handle}`, 내 공간 소개 편집)을 구현했습니다.**
 작성자 화면과 사용자 공간 화면은 실제 API 흐름(curl)·SSR 응답과 웹 타입 검사·빌드·단위 테스트로 확인했으나,
 작업 환경에 실행 가능한 브라우저가 없어 실제 브라우저 검증은 남아 있습니다.
-운영은 첫 체크포인트(프록시 신뢰 경계와 요청 제한)만 구현했고 CI·E2E·운영 배포·백업은 남아 있습니다.
+운영은 프록시 신뢰 경계와 요청 제한(운영 1), CI 워크플로(운영 2, GitHub 실제 실행 확인 전)를 구현했고 E2E·운영 배포·백업은 남아 있습니다.
 사용자 공간 화면 요구사항은 [docs/checkpoints/user-space-ui.md](docs/checkpoints/user-space-ui.md)에 있습니다.
 완료한 작성자 화면 요구사항은 [docs/checkpoints/author-management-ui.md](docs/checkpoints/author-management-ui.md)에 있습니다.
 
@@ -183,6 +183,23 @@
 - 운영에는 리버스 프록시와 CDN을 두기로 결정해, 클라이언트 IP 신뢰 체인 재설계·CDN 캐시·HTTPS 항목을
   [docs/checkpoints/ops-deploy-checklist.md](docs/checkpoints/ops-deploy-checklist.md)로 정리했습니다.
 
+### 2026-11-18: 운영 2 — CI
+
+- 요구사항: [docs/checkpoints/ops-ci.md](docs/checkpoints/ops-ci.md) (Q1~Q4 추천안 A).
+- 저장소 루트에 `.github/workflows/wikiblog-ci.yml`을 추가했습니다. `wikiblog/**`·워크플로 파일을 바꾼 PR과
+  `main` push, 수동 실행에서 `wikiblog/`를 작업 디렉터리로 실행합니다. 권한은 `contents: read`, 같은 ref의 이전 실행은
+  취소하고 job마다 시간 제한을 둡니다. 외부 액션은 `actions/checkout@v7`, `actions/setup-node@v7`, `pnpm/action-setup@v6`
+  (pnpm 버전은 `packageManager`)만 씁니다. Node 24, pnpm 저장소 캐시, `pnpm install --frozen-lockfile`.
+- 정적 검사·단위 job: libs 빌드 → API 타입 검사 → 웹 타입 검사 → API 빌드 → API·웹 단위 테스트 → 웹 빌드.
+- 통합 job: Redis 7.4는 서비스 컨테이너, MySQL 8.4는 job 안에서 `openssl rand`로 만든 일회용 비밀번호(`::add-mask::`)로
+  step에서 띄웁니다(서비스 컨테이너 env는 job 시작 전에 정해지기 때문). 마이그레이션 → API 백그라운드 실행 →
+  `/api/health` 최대 60초 대기 → `INTEGRATION_TESTS=1` 테스트. `node --test` 요약의 `skipped`가 0이 아니거나 요약이 없으면 실패합니다.
+- `package.json`에 `engines.node: ">=24"`를 추가했습니다(lockfile 변화 없음). 요청 제한을 끄는 설정은 추가하지 않았습니다
+  (통합 테스트 한 번에 가입 14회·로그인 2회로 15분 20회 안).
+- README에 CI 절, `CLAUDE.md`에 "CI와 같은 검사" 명령을 추가했습니다. 설계안 §12의 워크플로 위치(`wikiblog/.github/workflows/`)는
+  실행되지 않는 위치임을 README에 적었습니다.
+- GitHub에서의 실제 실행은 아직 하지 않았습니다(push는 사용자 승인 후).
+
 ## 마일스톤
 
 | 단계 | 상태 | 진행 내용과 남은 작업 |
@@ -194,7 +211,7 @@
 | 공개 분류 | 구현 완료 | 카테고리·태그 API와 공개 필터; 플랫폼 관리·시드 보류 |
 | 작성자 화면 | 구현 완료 (브라우저 검증 남음) | 인증·책·페이지 편집·발행, 목차 이동·이력 복원, 분류 관리 UI; 실제 API 흐름·타입 검사·빌드 확인, 실제 브라우저·키보드·모바일 확인 필요 |
 | 사용자 공간 화면 | 구현 완료 (브라우저 검증 남음) | 공간 책 목록 API, `/@{handle}` 공개 공간, 내 공간 소개 편집, `@handle` 링크; SSR 응답·실제 API·타입 검사·빌드 확인, 실제 브라우저·키보드·모바일 확인 필요 ([요구사항](docs/checkpoints/user-space-ui.md)) |
-| 운영 | 진행 중 (운영 1 구현 완료) | 운영 1: 프록시 신뢰 경계와 요청 제한 구현·검증 ([요구사항](docs/checkpoints/ops-proxy-rate-limit.md)); 운영 2 CI 요구사항 확정 ([요구사항](docs/checkpoints/ops-ci.md)); 남은 작업: E2E, 운영 배포(리버스 프록시·CDN 신뢰 체인 재설계, HTTPS, 캐시 정책 — [운영 배포 체크리스트](docs/checkpoints/ops-deploy-checklist.md)), 백업·모니터링 |
+| 운영 | 진행 중 (운영 1·2 구현 완료, 운영 2는 GitHub 실행 확인 남음) | 운영 1: 프록시 신뢰 경계와 요청 제한 구현·검증 ([요구사항](docs/checkpoints/ops-proxy-rate-limit.md)); 운영 2: CI 워크플로 구현, 깨끗한 컨테이너에서 로컬 재현만 확인 ([요구사항](docs/checkpoints/ops-ci.md)); 남은 작업: GitHub 첫 실행 확인, E2E, 운영 배포(리버스 프록시·CDN 신뢰 체인 재설계, HTTPS, 캐시 정책 — [운영 배포 체크리스트](docs/checkpoints/ops-deploy-checklist.md)), 백업·모니터링 |
 
 ## 다음 구현에 적용할 결정 사항
 
@@ -279,6 +296,15 @@
   `X-Forwarded-For`로 전달되며(운영 빌드의 SSR 내부 호출은 XFF 없음) 시간 제한 초과 시 504가 반환됨을 확인했습니다.
   한 클라이언트가 실제로 429를 받은 상태에서 다른 클라이언트가 로그인되는지는 실제 스택에서 재현하지 않았습니다
   (카운터 소모를 피함; 키 분리는 단위 테스트와 위 Redis 키로 확인). 실행 가능한 브라우저가 없어 브라우저 검증은 하지 않았습니다.
+
+- 운영 2 CI 체크포인트 (2026-11-18, **로컬 재현만**, GitHub 실제 실행 없음): `actionlint` 1.7.12(shellcheck 포함) 오류 0개.
+  깨끗한 `node:24`(v24.22.3) 컨테이너에 추적 파일만 복사해(호스트 `node_modules` 미사용) 워크플로 step을 YAML에서 읽어 같은 순서로 실행했습니다.
+  정적 검사·단위 job 통과: `pnpm install --frozen-lockfile`, libs 빌드, API·웹 타입 검사, API 빌드, API 테스트 20개(통과 13, 건너뜀 7 — 통합),
+  웹 테스트 18개 통과, 웹 빌드. 통합 job은 고유 이름의 임시 네트워크·Redis 7.4·MySQL 8.4 컨테이너(호스트 포트 공개 없음)로 재현해
+  마이그레이션, API 헬스 대기, `INTEGRATION_TESTS=1` API 테스트 20개 통과(실패 0, 건너뜀 0)였고 일회용 비밀번호 2개는 출력에 나타나지 않았습니다.
+  실패 재현: `INTEGRATION_TESTS`를 빼면 건너뜀 7개로 통합 job이 실패했고, 단위 테스트 하나를 일부러 깨면 실패 1개로 job이 실패했습니다
+  (둘 다 확인 후 되돌림). 임시 컨테이너·네트워크는 모두 삭제했고 기존 `wikiblog-wt`·`wikiblog` 스택은 건드리지 않았습니다.
+  GitHub 러너에서만 확인 가능한 항목(액션 버전·캐시, 서비스 컨테이너 준비, 러너의 IPv6 loopback, 경로 필터)은 push 후 확인합니다.
 
 ## 남은 결정과 주의 사항
 
