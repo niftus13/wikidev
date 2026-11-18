@@ -71,6 +71,7 @@ API에서 `trust proxy`만 켜면, 브라우저가 보낸 `X-Forwarded-For`가 �
 | B-2 | 프록시 경로를 하나로 통일한다(7절 Q3). 개발과 운영이 같은 서버 라우트 코드를 쓰게 한다. |
 | B-3 | 프록시는 클라이언트가 보낸 `X-Forwarded-For`, `X-Real-IP`, `Forwarded`를 **버리고**, 자신이 본 연결 주소(`event.node.req.socket.remoteAddress`)로 `X-Forwarded-For`를 새로 만든다. |
 | | 웹 앞에 리버스 프록시를 두는 운영 구성은 운영 배포 체크포인트에서 다룬다. 이번에는 웹이 첫 hop이라고 가정한다. |
+| | **후속(2026-11-18):** 운영에는 리버스 프록시와 CDN을 두기로 해서 이 가정은 운영 환경에서 성립하지 않는다. 신뢰 체인 재설계는 [운영 배포 체크리스트](ops-deploy-checklist.md)로 미뤘다. |
 | B-4 | 헤더를 만드는 로직은 순수 함수(`server/utils/` 등)로 분리하고 단위 테스트를 작성한다. 위조 헤더 제거, 기존 쿠키·CSRF·Origin·Content-Type 헤더 유지를 검증한다. |
 | B-5 | 프록시 요청에 시간 제한을 둔다(7절 Q2). 넘으면 **504**와 JSON `{ "error": "Upstream timeout" }`을 반환한다. 웹의 `apiErrorStatus` 처리와 충돌하지 않는지 확인한다. |
 | B-6 | SSR 내부 호출(`useRequestFetch`)도 같은 프록시를 거친다. 이 호출에서 쿠키 전달과 공개 화면 SSR이 그대로 동작하는지 확인한다. |

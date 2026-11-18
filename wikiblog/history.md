@@ -176,6 +176,13 @@
   worktree 스택은 `.env`에서 `10.231.0.8/29`·`10.231.0.14`를 씁니다. README "실행"과 `.env.example`을 갱신했습니다.
 - 계정(이메일) 기준 로그인 제한은 하지 않았습니다(Q4, 미결 정책으로 유지).
 
+### 2026-11-18: 운영 2 — CI 요구사항 확정과 운영 배포 체크리스트
+
+- 요구사항: [docs/checkpoints/ops-ci.md](docs/checkpoints/ops-ci.md) (Q1~Q4 추천안 A).
+  Git 루트가 `wikis/`이므로 워크플로는 루트 `.github/workflows/wikiblog-ci.yml`에 두고 `wikiblog`에서 실행합니다.
+- 운영에는 리버스 프록시와 CDN을 두기로 결정해, 클라이언트 IP 신뢰 체인 재설계·CDN 캐시·HTTPS 항목을
+  [docs/checkpoints/ops-deploy-checklist.md](docs/checkpoints/ops-deploy-checklist.md)로 정리했습니다.
+
 ## 마일스톤
 
 | 단계 | 상태 | 진행 내용과 남은 작업 |
@@ -187,7 +194,7 @@
 | 공개 분류 | 구현 완료 | 카테고리·태그 API와 공개 필터; 플랫폼 관리·시드 보류 |
 | 작성자 화면 | 구현 완료 (브라우저 검증 남음) | 인증·책·페이지 편집·발행, 목차 이동·이력 복원, 분류 관리 UI; 실제 API 흐름·타입 검사·빌드 확인, 실제 브라우저·키보드·모바일 확인 필요 |
 | 사용자 공간 화면 | 구현 완료 (브라우저 검증 남음) | 공간 책 목록 API, `/@{handle}` 공개 공간, 내 공간 소개 편집, `@handle` 링크; SSR 응답·실제 API·타입 검사·빌드 확인, 실제 브라우저·키보드·모바일 확인 필요 ([요구사항](docs/checkpoints/user-space-ui.md)) |
-| 운영 | 진행 중 (운영 1 구현 완료) | 운영 1: 프록시 신뢰 경계와 요청 제한 구현·검증 ([요구사항](docs/checkpoints/ops-proxy-rate-limit.md)); 남은 작업: CI, E2E, 운영 배포·HTTPS(웹 앞 리버스 프록시 포함), 백업·모니터링 |
+| 운영 | 진행 중 (운영 1 구현 완료) | 운영 1: 프록시 신뢰 경계와 요청 제한 구현·검증 ([요구사항](docs/checkpoints/ops-proxy-rate-limit.md)); 운영 2 CI 요구사항 확정 ([요구사항](docs/checkpoints/ops-ci.md)); 남은 작업: E2E, 운영 배포(리버스 프록시·CDN 신뢰 체인 재설계, HTTPS, 캐시 정책 — [운영 배포 체크리스트](docs/checkpoints/ops-deploy-checklist.md)), 백업·모니터링 |
 
 ## 다음 구현에 적용할 결정 사항
 
@@ -203,6 +210,8 @@
 - 플랫폼 카테고리는 공개 조회만 제공하고 운영자 인증·관리 API는 보류합니다.
 - 작성자 분류 관리는 `/dashboard/categories`와 `/dashboard/books/{bookId}/categories`에서 하며, 태그는 태그 관리에서만 생성합니다.
 - 웹 프록시는 클라이언트가 보낸 IP 헤더를 버리고 자신이 본 주소로 `X-Forwarded-For`를 다시 쓰며, API는 `TRUST_PROXY`로 지정한 주소·대역만 신뢰합니다(Compose는 웹 컨테이너 고정 주소 하나). 모든 주소를 믿는 설정은 거부합니다. 프록시 시간 제한은 30초(504)이고 개발·운영 프록시 경로는 서버 라우트 하나로 통일합니다.
+- CI는 GitHub Actions 서비스 컨테이너(MySQL 8.4·Redis 7.4)에서 API를 직접 실행해 통합 테스트하고, 건너뛴 테스트가 있으면 실패합니다. PR과 `main` push(`wikiblog/**` 경로)에서 Node 24로 실행하며, 원격 push는 사용자 승인 후 합니다.
+- 운영 환경에는 리버스 프록시와 CDN을 둡니다. 신뢰 체인은 운영 배포에서 다시 설계합니다.
 - 사용자 공간은 `/@{handle}`에 SSR로 공개하고, 대문자 handle은 소문자 URL로 301 리다이렉트합니다. 공간 소개는 일반 텍스트(최대 500자)이며 내 책 관리 상단에서 편집하고 즉시 공개합니다.
 
 ## 검증 기록
@@ -279,7 +288,7 @@
 - **요청 제한 결함 (수정, 2026-11-18 운영 1):** 웹 프록시가 클라이언트 IP 헤더를 버리고 자신이 본 연결 주소로
   `X-Forwarded-For`를 다시 쓰며, API는 `TRUST_PROXY`(Compose: 웹 컨테이너 고정 주소)만 신뢰해 클라이언트별로 집계합니다.
   웹 프록시 시간 제한(30초, 504)도 추가했습니다. 남은 주의: 로컬 개발에서는 호스트의 모든 요청이 Docker 게이트웨이
-  주소 하나로 집계됩니다. 웹 앞에 리버스 프록시·CDN을 두면 웹이 첫 hop이 아니므로 운영 배포 체크포인트에서
-  신뢰 체인을 다시 설계해야 합니다. 운영 빌드의 SSR 내부 API 호출은 웹 서버 주소로 집계됩니다(요청 제한 대상 아님).
+  주소 하나로 집계됩니다. **운영 환경에는 리버스 프록시와 CDN을 둡니다(2026-11-18 결정).** 웹이 첫 hop이라는 운영 1의 가정이 깨지므로,
+  클라이언트 IP 신뢰 체인 재설계는 [운영 배포 체크리스트](docs/checkpoints/ops-deploy-checklist.md)로 미뤘습니다. 재설계 전까지 운영 1 구성은 개발 환경에서만 유효합니다. 운영 빌드의 SSR 내부 API 호출은 웹 서버 주소로 집계됩니다(요청 제한 대상 아님).
   같은 호스트에서 Compose 프로젝트를 여럿 띄우면 `.env`의 `WEB_API_SUBNET`·`WEB_PROXY_IP`를 서로 다르게 둬야 합니다.
-- 현재 Compose 설정은 개발용입니다. 운영용 HTTPS, 프록시 및 요청 제한 정책은 별도 설계가 필요합니다.
+- 현재 Compose 설정은 개발용입니다. 운영용 HTTPS, 리버스 프록시·CDN, 캐시 및 요청 제한 정책은 [운영 배포 체크리스트](docs/checkpoints/ops-deploy-checklist.md)에서 다룹니다.

@@ -183,7 +183,8 @@ Nuxt 서버의 API 프록시 대상은 `API_PROXY_TARGET`으로 설정하며, �
   하나로 `X-Forwarded-For`를 새로 씁니다. 개발 서버에서는 Nitro 워커가 유닉스 소켓 뒤에 있어 주소를 직접 알 수
   없으므로, 개발 서버 첫 hop(`nuxt.config.ts`의 `devServerHandlers`)이 같은 방식으로 헤더를 다시 씁니다.
   SSR 내부 호출은 운영 빌드에서 연결 주소가 없어 `X-Forwarded-For` 없이 전달됩니다(웹 서버 주소로 집계).
-  이 구성은 웹이 첫 hop이라고 가정합니다. 웹 앞에 리버스 프록시를 두는 운영 구성은 별도 설계가 필요합니다.
+  이 구성은 웹이 첫 hop이라고 가정합니다. 운영에는 리버스 프록시와 CDN을 두므로, 신뢰 체인은
+  [운영 배포 체크리스트](docs/checkpoints/ops-deploy-checklist.md)에서 다시 설계합니다.
 - 프록시 시간 제한은 기본 30초이며 `NUXT_API_PROXY_TIMEOUT_MS`(밀리초, 양의 정수)로 바꿉니다.
   넘으면 `504 {"error":"Upstream timeout"}`을 반환합니다. 잘못된 값이면 `/api` 요청이 500으로 실패합니다.
   Compose에서는 `.env`의 `NUXT_API_PROXY_TIMEOUT_MS`가 웹 컨테이너로 전달됩니다.
@@ -229,7 +230,8 @@ Compose는 API 시작 전 MySQL 마이그레이션을 적용합니다. 로컬에
 필요한 MySQL 환경 변수를 설정하고 `pnpm --filter @wikiblog/api migrate`를 실행합니다.
 개발 환경은 `http://localhost:3000`에서만 보안 쿠키 없이 동작하도록 설정되어 있습니다.
 공개 서비스에서는 HTTPS `APP_ORIGIN`과 `COOKIE_SECURE=true`가 필요하며,
-운영 배포(웹 앞 리버스 프록시 포함)와 추가 요청 제한 정책은 별도로 구성해야 합니다.
+운영 배포(리버스 프록시·CDN 신뢰 체인, 캐시, HTTPS)와 추가 요청 제한 정책은
+[운영 배포 체크리스트](docs/checkpoints/ops-deploy-checklist.md)에서 다룹니다.
 
 ### 책 API
 
