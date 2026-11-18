@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { PublicBookDto, PublicClassificationDto, TocEntryDto } from '@wikiblog/dto';
-import { pagePath } from '~/utils/paths';
+import { pagePath, spacePath } from '~/utils/paths';
 
 const route = useRoute();
 const requestFetch = useRequestFetch();
@@ -28,11 +28,11 @@ useSeoMeta({ title: () => data.value ? `${data.value.book.title} — WikiBlog` :
     책을 찾을 수 없거나 불러오지 못했습니다. <button class="link-button" @click="refresh()">다시 시도</button>
   </div>
   <ReaderShell v-else :book="data.book" :toc="data.toc">
-    <div class="breadcrumbs"><NuxtLink to="/">책 둘러보기</NuxtLink><span>/</span><span>{{ data.book.title }}</span></div>
+    <div class="breadcrumbs"><NuxtLink to="/">책 둘러보기</NuxtLink><span>/</span><NuxtLink :to="spacePath(data.book.handle)">@{{ data.book.handle }}</NuxtLink><span>/</span><span>{{ data.book.title }}</span></div>
     <article class="article">
       <p class="eyebrow">ABOUT THIS BOOK</p>
       <h1>{{ data.book.title }}</h1>
-      <p class="book-byline">@{{ data.book.handle }}의 책</p>
+      <p class="book-byline"><NuxtLink class="owner-link" :to="spacePath(data.book.handle)">@{{ data.book.handle }}</NuxtLink>의 책</p>
       <ClassificationLinks :classification="data.classification" />
       <div class="divider" />
       <h2>이 책에 대하여</h2>

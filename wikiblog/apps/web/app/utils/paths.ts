@@ -1,5 +1,9 @@
+export function spacePath(handle: string): string {
+  return `/@${encodeURIComponent(handle)}`;
+}
+
 export function bookPath(handle: string, slug: string): string {
-  return `/@${encodeURIComponent(handle)}/${encodeURIComponent(slug)}`;
+  return `${spacePath(handle)}/${encodeURIComponent(slug)}`;
 }
 
 export function pagePath(handle: string, slug: string, pageId: string): string {

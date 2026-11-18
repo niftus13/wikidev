@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { PublicBookDto, TocEntryDto } from '@wikiblog/dto';
-import { bookPath, pagePath } from '~/utils/paths';
+import { bookPath, pagePath, spacePath } from '~/utils/paths';
 
 const props = defineProps<{ book: PublicBookDto; toc: TocEntryDto[]; currentId?: string }>();
 const depths = computed(() => {
@@ -13,11 +13,13 @@ const depths = computed(() => {
 <template>
   <div class="reader">
     <aside class="reader-sidebar" aria-label="책 목차">
-      <NuxtLink class="sidebar-book" :to="bookPath(book.handle, book.slug)">
-        <span class="eyebrow">BOOK</span>
-        <strong>{{ book.title }}</strong>
-        <span class="sidebar-author">@{{ book.handle }}</span>
-      </NuxtLink>
+      <div class="sidebar-book">
+        <NuxtLink class="sidebar-book-link" :to="bookPath(book.handle, book.slug)">
+          <span class="eyebrow">BOOK</span>
+          <strong>{{ book.title }}</strong>
+        </NuxtLink>
+        <NuxtLink class="sidebar-author" :to="spacePath(book.handle)">@{{ book.handle }}</NuxtLink>
+      </div>
       <div class="sidebar-label">목차 <span>{{ toc.length }}</span></div>
       <nav v-if="toc.length" aria-label="페이지 목차">
         <ul class="toc-list">

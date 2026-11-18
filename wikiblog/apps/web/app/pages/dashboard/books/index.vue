@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import type { BookDto, CreateBookRequest, SessionResponse } from '@wikiblog/dto';
+import type { BookDto, CreateBookRequest, SessionResponse, SpaceDto, UpdateSpaceRequest } from '@wikiblog/dto';
 import { apiErrorStatus } from '~/utils/apiError';
-import { bookPath } from '~/utils/paths';
+import { bookPath, spacePath } from '~/utils/paths';
+import { characterCount, SPACE_DESCRIPTION_LIMIT } from '~/utils/space';
 
 useSeoMeta({ title: '내 책 관리 — WikiBlog', robots: 'noindex' });
 const session = ref<SessionResponse | null>(null);
@@ -30,8 +31,76 @@ function closeClassification() {
   if (classificationChanged() && !window.confirm('저장하지 않은 분류 변경이 있습니다. 분류 패널을 닫으시겠습니까?')) return;
   classifyingId.value = null;
 }
-onBeforeRouteLeave(() => !classificationChanged()
-  || window.confirm('저장하지 않은 분류 변경이 있습니다. 이 화면을 나가시겠습니까?'));
+
+// 내 공간 소개 편집. 저장 즉시 공개 공간(/@{handle})에 반영된다.
+const route = useRoute();
+const spaceEditing = ref(false);
+const spaceDraft = ref('');
+const spaceBusy = ref(false);
+const spaceError = ref('');
+const spaceErrorStatus = ref<number | undefined>();
+const spaceNotice = ref('');
+const spaceTextarea = ref<HTMLTextAreaElement | null>(null);
+const spaceLength = computed(() => characterCount(spaceDraft.value));
+const spaceOver = computed(() => spaceLength.value > SPACE_DESCRIPTION_LIMIT);
+const spaceDirty = computed(() => spaceEditing.value && !!session.value && spaceDraft.value !== session.value.space.description);
+async function openSpaceEditor() {
+  if (!session.value) return;
+  spaceDraft.value = session.value.space.description;
+  spaceEditing.value = true;
+  spaceError.value = '';
+  spaceNotice.value = '';
+  await nextTick();
+  spaceTextarea.value?.focus();
+}
+function closeSpaceEditor() {
+  if (spaceDirty.value && !window.confirm('저장하지 않은 공간 소개 변경을 버리시겠습니까?')) return;
+  spaceEditing.value = false;
+  spaceError.value = '';
+}
+function describeSpaceError(status: number | undefined) {
+  if (status === 400) return `소개는 ${SPACE_DESCRIPTION_LIMIT}자 이하의 텍스트여야 합니다. 입력 내용을 확인해 주세요.`;
+  if (status === 401) return '세션이 만료되었습니다. 다른 탭에서 다시 로그인한 뒤 저장을 다시 시도해 주세요. 입력한 소개는 유지됩니다.';
+  if (status === 403) return '인증 정보가 변경되었거나 요청이 거부되었습니다. 입력을 복사해 보관한 뒤 새로고침해 주세요.';
+  if (status === 404) return '공간을 찾을 수 없거나 수정 권한이 없습니다. 입력을 복사해 보관한 뒤 새로고침해 주세요.';
+  return '소개를 저장하지 못했습니다. 연결을 확인하고 다시 시도해 주세요. 입력한 소개는 유지됩니다.';
+}
+async function saveSpace() {
+  if (spaceBusy.value || !session.value || spaceOver.value) return;
+  spaceBusy.value = true;
+  spaceError.value = '';
+  spaceErrorStatus.value = undefined;
+  spaceNotice.value = '';
+  try {
+    const body: UpdateSpaceRequest = { description: spaceDraft.value };
+    const space = await $fetch<SpaceDto>(`/api/v1/spaces/${encodeURIComponent(session.value.space.handle)}`, {
+      method: 'PATCH', headers: { 'X-CSRF-Token': session.value.csrfToken }, body,
+    });
+    session.value = { ...session.value, space };
+    spaceEditing.value = false;
+    spaceNotice.value = '공간 소개를 저장했습니다. 공개 공간에 바로 반영됩니다.';
+  } catch (cause) {
+    spaceErrorStatus.value = apiErrorStatus(cause);
+    spaceError.value = describeSpaceError(spaceErrorStatus.value);
+  } finally {
+    spaceBusy.value = false;
+  }
+}
+
+// 분류 패널과 공간 소개의 미저장 변경을 함께 확인한다.
+function unsavedMessage() {
+  const parts = [spaceDirty.value || spaceBusy.value ? '공간 소개' : '', classificationChanged() ? '분류' : ''].filter(Boolean);
+  return parts.length ? `저장하지 않은 ${parts.join('·')} 변경이 있습니다. 이 화면을 나가시겠습니까?` : '';
+}
+onBeforeRouteLeave(() => {
+  const message = unsavedMessage();
+  return !message || window.confirm(message);
+});
+function warnBeforeUnload(event: BeforeUnloadEvent) {
+  if (unsavedMessage()) event.preventDefault();
+}
+onMounted(() => window.addEventListener('beforeunload', warnBeforeUnload));
+onBeforeUnmount(() => window.removeEventListener('beforeunload', warnBeforeUnload));
 
 async function load() {
   loading.value = true;
@@ -41,6 +110,10 @@ async function load() {
     const list = await $fetch<BookDto[]>('/api/v1/me/books');
     session.value = current;
     books.value = list;
+    if (route.query.space === 'edit' && !spaceEditing.value) {
+      loading.value = false;
+      await openSpaceEditor();
+    }
   } catch (cause) {
     session.value = null;
     loadError.value = apiErrorStatus(cause) === 401 ? 'login' : 'error';
@@ -115,6 +188,7 @@ async function logout() {
     await $fetch('/api/v1/auth/logout', { method: 'POST', headers: { 'X-CSRF-Token': session.value.csrfToken }, body: {} });
     session.value = null;
     books.value = [];
+    spaceEditing.value = false;
     loadError.value = 'login';
     notice.value = '로그아웃했습니다.';
   } catch (cause) {
@@ -141,7 +215,34 @@ async function logout() {
     </div>
     <div v-else-if="loadError" class="state" role="alert">계정 또는 책을 불러오지 못했습니다. <button class="link-button" @click="load()">다시 시도</button></div>
     <template v-else-if="session">
-      <div class="dashboard-account"><span>@{{ session.space.handle }}</span><button class="link-button" type="button" :disabled="busy || !!formMode" @click="logout">로그아웃</button></div>
+      <div class="dashboard-account"><span>@{{ session.space.handle }}</span><button class="link-button" type="button" :disabled="busy || !!formMode || spaceEditing || spaceBusy" @click="logout">로그아웃</button></div>
+      <section class="editor-panel space-panel" aria-labelledby="space-heading">
+        <div class="space-panel-heading">
+          <h2 id="space-heading">내 공간</h2>
+          <NuxtLink class="text-link" :to="spacePath(session.space.handle)">공개 공간 보기 <span aria-hidden="true">→</span></NuxtLink>
+        </div>
+        <p class="field-help">공개 주소 <strong>{{ spacePath(session.space.handle) }}</strong> · 소개는 일반 텍스트로 표시되며 저장하면 즉시 공개됩니다.</p>
+        <p v-if="spaceNotice" class="form-success" role="status">{{ spaceNotice }}</p>
+        <template v-if="!spaceEditing">
+          <p class="space-panel-current">{{ session.space.description || '소개가 아직 작성되지 않았습니다.' }}</p>
+          <div class="form-actions"><button class="button button-secondary" type="button" @click="openSpaceEditor">소개 편집</button></div>
+        </template>
+        <form v-else class="editor-form" novalidate @submit.prevent="saveSpace">
+          <label for="space-description">공간 소개</label>
+          <textarea
+            id="space-description" ref="spaceTextarea" v-model="spaceDraft" rows="4" :disabled="spaceBusy"
+            :aria-invalid="spaceOver" aria-describedby="space-description-count space-description-help"
+          />
+          <p id="space-description-count" class="char-counter" :class="{ over: spaceOver }">{{ spaceLength }} / {{ SPACE_DESCRIPTION_LIMIT }}자</p>
+          <p id="space-description-help" class="field-help">줄바꿈은 유지되고 HTML과 Markdown은 그대로 글자로 보입니다. 저장하면 공개 공간에 즉시 반영됩니다.</p>
+          <p v-if="spaceOver" class="form-error" role="alert">소개는 {{ SPACE_DESCRIPTION_LIMIT }}자까지 저장할 수 있습니다. {{ spaceLength - SPACE_DESCRIPTION_LIMIT }}자를 줄여 주세요.</p>
+          <p v-if="spaceError" class="form-error" role="alert">{{ spaceError }} <NuxtLink v-if="spaceErrorStatus === 401" class="text-link" to="/login" target="_blank">새 탭에서 로그인</NuxtLink></p>
+          <div class="form-actions">
+            <button class="button button-primary" type="submit" :disabled="spaceBusy || spaceOver">{{ spaceBusy ? '저장 중…' : '소개 저장' }}</button>
+            <button class="button button-secondary" type="button" :disabled="spaceBusy" @click="closeSpaceEditor">취소</button>
+          </div>
+        </form>
+      </section>
       <p v-if="notice" class="form-success" role="status">{{ notice }}</p>
       <p v-if="actionError && !formMode" class="form-error" role="alert">{{ actionError }} <NuxtLink v-if="actionError.includes('세션이 만료')" class="text-link" to="/login" target="_blank">새 탭에서 로그인</NuxtLink></p>
       <section v-if="formMode" class="editor-panel" aria-labelledby="book-form-heading">

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { PublicBookDto, PublicClassificationDto, PublishedPageDto, TocEntryDto } from '@wikiblog/dto';
-import { bookPath, pagePath } from '~/utils/paths';
+import { bookPath, pagePath, spacePath } from '~/utils/paths';
 import { renderMarkdown } from '~/utils/markdown';
 
 const route = useRoute();
@@ -35,7 +35,7 @@ useSeoMeta({ title: () => data.value ? `${data.value.page.title} — ${data.valu
     페이지를 찾을 수 없거나 불러오지 못했습니다. <button class="link-button" @click="refresh()">다시 시도</button>
   </div>
   <ReaderShell v-else :book="data.book" :toc="data.toc" :current-id="data.page.id">
-    <div class="breadcrumbs"><NuxtLink to="/">책 둘러보기</NuxtLink><span>/</span><NuxtLink :to="bookPath(data.book.handle, data.book.slug)">{{ data.book.title }}</NuxtLink><span>/</span><span>{{ data.page.title }}</span></div>
+    <div class="breadcrumbs"><NuxtLink to="/">책 둘러보기</NuxtLink><span>/</span><NuxtLink :to="spacePath(data.book.handle)">@{{ data.book.handle }}</NuxtLink><span>/</span><NuxtLink :to="bookPath(data.book.handle, data.book.slug)">{{ data.book.title }}</NuxtLink><span>/</span><span>{{ data.page.title }}</span></div>
     <article class="article">
       <p class="eyebrow">PAGE</p>
       <h1>{{ data.page.title }}</h1>

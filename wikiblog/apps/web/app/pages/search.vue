@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { PublicCategoryDto, SearchResultDto } from '@wikiblog/dto';
-import { bookPath, pagePath } from '~/utils/paths';
+import { bookPath, pagePath, spacePath } from '~/utils/paths';
 
 const route = useRoute();
 const query = computed(() => typeof route.query.q === 'string' ? route.query.q.trim() : '');
@@ -66,11 +66,9 @@ useSeoMeta({ title: '검색 — WikiBlog', description: '공개된 책과 페이
       <p v-if="!results?.length" class="state">검색 조건에 맞는 결과가 없습니다.</p>
       <ul v-else class="results">
         <li v-for="result in results" :key="`${result.type}:${result.id}`">
-          <NuxtLink :to="result.type === 'book' ? bookPath(result.handle, result.bookSlug) : pagePath(result.handle, result.bookSlug, result.id)">
-            <div class="result-meta">{{ result.type === 'book' ? '책' : '페이지' }} <span>·</span> @{{ result.handle }} <span v-if="result.type === 'page'"> · {{ result.bookTitle }}</span></div>
-            <h3>{{ result.title }} <span aria-hidden="true">↗</span></h3>
-            <p v-if="result.excerpt">{{ result.excerpt }}</p>
-          </NuxtLink>
+          <div class="result-meta">{{ result.type === 'book' ? '책' : '페이지' }} <span>·</span> <NuxtLink class="owner-link" :to="spacePath(result.handle)">@{{ result.handle }}</NuxtLink> <span v-if="result.type === 'page'"> · {{ result.bookTitle }}</span></div>
+          <h3><NuxtLink class="card-link" :to="result.type === 'book' ? bookPath(result.handle, result.bookSlug) : pagePath(result.handle, result.bookSlug, result.id)">{{ result.title }} <span aria-hidden="true">↗</span></NuxtLink></h3>
+          <p v-if="result.excerpt">{{ result.excerpt }}</p>
         </li>
       </ul>
     </div>

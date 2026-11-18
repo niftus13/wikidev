@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { PublicBookDto } from '@wikiblog/dto';
-import { bookPath } from '~/utils/paths';
+import { bookPath, spacePath } from '~/utils/paths';
 
 const { data: books, status, error, refresh } = await useFetch<PublicBookDto[]>('/api/v1/books');
 if (import.meta.server && error.value) {
@@ -35,11 +35,15 @@ useSeoMeta({ title: 'WikiBlog — 책으로 만나는 지식', description: '공
       <div v-else-if="error" class="state" role="alert">책을 불러오지 못했습니다. <button class="link-button" @click="refresh()">다시 시도</button></div>
       <div v-else-if="!books?.length" class="state">아직 공개된 책이 없습니다.</div>
       <div v-else class="book-grid">
-        <NuxtLink v-for="book in books" :key="book.id" class="book-card" :to="bookPath(book.handle, book.slug)">
+        <article v-for="book in books" :key="book.id" class="book-card">
           <div class="book-icon" aria-hidden="true">▤</div>
-          <div class="book-card-content"><span class="card-owner">@{{ book.handle }}</span><h3>{{ book.title }}</h3><p>{{ book.description || '소개가 아직 작성되지 않았습니다.' }}</p></div>
+          <div class="book-card-content">
+            <NuxtLink class="card-owner owner-link" :to="spacePath(book.handle)">@{{ book.handle }}</NuxtLink>
+            <h3><NuxtLink class="card-link" :to="bookPath(book.handle, book.slug)">{{ book.title }}</NuxtLink></h3>
+            <p>{{ book.description || '소개가 아직 작성되지 않았습니다.' }}</p>
+          </div>
           <span class="card-arrow" aria-hidden="true">↗</span>
-        </NuxtLink>
+        </article>
       </div>
     </section>
   </div>
