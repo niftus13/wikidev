@@ -91,7 +91,7 @@ MySQL은 원본 데이터이며 Redis만으로 공개 상태나 발행 여부를
 | 페이지 편집 (페이지 분류 패널 포함) | `/dashboard/books/{bookId}/pages/{pageId}` |
 | 분류 관리 (내 책 카테고리·태그) | `/dashboard/categories` |
 | 책별 페이지 카테고리 관리 | `/dashboard/books/{bookId}/categories` |
-| 사용자 공간 | `/@{handle}` (미구현, `GET /api/v1/spaces/{handle}` API만 있음) |
+| 사용자 공간 | `/@{handle}` (미구현, `GET /api/v1/spaces/{handle}`·`GET /api/v1/spaces/{handle}/books` API만 있음) |
 
 공개 페이지 URL에는 변경 가능한 제목 대신 페이지 ID를 사용합니다.
 
@@ -100,6 +100,7 @@ MySQL은 원본 데이터이며 Redis만으로 공개 상태나 발행 여부를
 | 구분 | 메서드·경로 | 역할 |
 | --- | --- | --- |
 | 공개 | `GET /api/v1/books` | 공개 책 목록 |
+| 공개 | `GET /api/v1/spaces/{handle}/books` | 사용자 공간의 공개 책 목록 |
 | 공개 | `GET /api/v1/search?q=...` | 공개 콘텐츠 검색 |
 | 공개 | `GET /api/v1/books/{id}/toc` | 발행된 목차 |
 | 공개 | `GET /api/v1/pages/{id}` | 발행된 페이지 |
@@ -196,6 +197,7 @@ Compose는 API 시작 전 MySQL 마이그레이션을 적용합니다. 로컬에
 | --- | --- |
 | `GET /api/v1/books` | 삭제되지 않은 공개 책 목록 |
 | `GET /api/v1/books/{id}` | 공개 책 상세 |
+| `GET /api/v1/spaces/{handle}/books` | 사용자 공간의 삭제되지 않은 공개 책 목록 |
 | `GET /api/v1/spaces/{handle}/books/{slug}` | 작성자 handle과 slug로 공개 책 상세 조회 |
 | `GET /api/v1/me/books` | 로그인한 사용자의 책 목록 |
 | `POST /api/v1/me/books` | 책 생성 |
@@ -207,6 +209,13 @@ Compose는 API 시작 전 MySQL 마이그레이션을 적용합니다. 로컬에
 삭제된 책의 slug도 보존됩니다. 변경 요청은 인증·CSRF 규칙을 따르며 삭제 요청에도
 `Content-Type: application/json`과 JSON 본문(예: `{}`)이 필요합니다.
 공개 책 목록·상세 응답에는 작성자 `handle`도 포함됩니다.
+
+공간 책 목록(`GET /api/v1/spaces/{handle}/books`)은 `GET /api/v1/books`와 같은 `PublicBookDto[]`
+형태와 정렬(`created_at DESC, id DESC`)로 해당 공간의 삭제되지 않은 책만 반환합니다.
+handle은 공간 조회 API와 같이 앞뒤 공백을 제거하고 소문자로 정규화합니다. 형식이 잘못되었거나
+공간이 없거나 소유자가 비활성이면 `404`이고, 공간은 있지만 책이 없으면 `200 []`입니다.
+페이지네이션은 없습니다. 책 상세 `GET /api/v1/spaces/{handle}/books/{slug}`는 지금처럼
+소문자 handle만 받습니다.
 
 ### 작성자 인증·책 관리 화면
 

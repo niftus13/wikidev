@@ -49,9 +49,10 @@ export function createApp(pool: Pool, redis: RedisClient, config: SecurityConfig
     next();
   });
   app.use('/api/v1', express.json({ limit: '16kb' }));
-  const auth = new AuthController(new AuthService(new AuthRepository(pool), redis), config);
+  const authRepository = new AuthRepository(pool);
+  const auth = new AuthController(new AuthService(authRepository, redis), config);
   app.use('/api/v1', authRoutes(auth));
-  app.use('/api/v1', bookRoutes(new BookController(new BookService(new BookRepository(pool)), auth)));
+  app.use('/api/v1', bookRoutes(new BookController(new BookService(new BookRepository(pool), authRepository), auth)));
   app.use('/api/v1', pageRoutes(new PageController(new PageService(new PageRepository(pool)), auth)));
   app.use('/api/v1', searchRoutes(new SearchController(new SearchService(new SearchRepository(pool)))));
   app.use('/api/v1', classificationRoutes(new ClassificationController(new ClassificationService(new ClassificationRepository(pool)), auth)));

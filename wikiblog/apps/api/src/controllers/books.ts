@@ -17,6 +17,9 @@ export class BookController {
   readonly auth: AuthController;
   constructor(service: BookService, auth: AuthController) { this.service = service; this.auth = auth; }
   list = async (_request: Request, response: Response) => { response.json(await this.service.list()); };
+  listBySpace = async (request: Request, response: Response) => {
+    response.json(await this.service.listBySpace(request.params.handle));
+  };
   listOwned = async (request: Request, response: Response) => {
     const current = await this.auth.session(request);
     response.json(await this.service.listOwned(current.space_id));

@@ -1,4 +1,6 @@
 import type { BookDto, CreateBookRequest, PublicBookDto } from '@wikiblog/dto';
+import { normalizeHandle } from '@wikiblog/shared';
+import type { AuthRepository } from '../repositories/auth.ts';
 import { BookRepository } from '../repositories/books.ts';
 import { HttpError } from './errors.ts';
 
@@ -25,8 +27,17 @@ function duplicate(error: unknown): boolean {
 
 export class BookService {
   readonly repository: BookRepository;
-  constructor(repository: BookRepository) { this.repository = repository; }
+  readonly spaces: Pick<AuthRepository, 'space'>;
+  constructor(repository: BookRepository, spaces: Pick<AuthRepository, 'space'>) {
+    this.repository = repository;
+    this.spaces = spaces;
+  }
   async list() { return (await this.repository.list()).map(publicDto); }
+  async listBySpace(value: unknown) {
+    const handle = normalizeHandle(value);
+    if (!handle || !await this.spaces.space(handle)) throw new HttpError(404, 'Space not found');
+    return (await this.repository.list(handle)).map(publicDto);
+  }
   async listOwned(spaceId: string) { return (await this.repository.listOwned(spaceId)).map(toDto); }
   async get(id: string) {
     const book = await this.repository.find(id);

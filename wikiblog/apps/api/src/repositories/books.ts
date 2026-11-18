@@ -11,12 +11,14 @@ export class BookRepository {
   readonly pool: Pool;
   constructor(pool: Pool) { this.pool = pool; }
 
-  async list() {
-    const [rows] = await this.pool.query<PublicBookRow[]>(`
+  /** 공개 책 목록. `handle`(정규화된 값)을 주면 해당 공간의 책만 반환한다. */
+  async list(handle?: string) {
+    const [rows] = await this.pool.execute<PublicBookRow[]>(`
       SELECT b.id, b.space_id, b.slug, b.title, b.description, s.handle
       FROM books b JOIN spaces s ON s.id = b.space_id JOIN users u ON u.id = s.owner_id
-      WHERE b.deleted_at IS NULL AND u.status = 'active' ORDER BY b.created_at DESC, b.id DESC
-    `);
+      WHERE b.deleted_at IS NULL AND u.status = 'active'${handle === undefined ? '' : ' AND s.handle = ?'}
+      ORDER BY b.created_at DESC, b.id DESC
+    `, handle === undefined ? [] : [handle]);
     return rows;
   }
 
