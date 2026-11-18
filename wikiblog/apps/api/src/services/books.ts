@@ -1,4 +1,4 @@
-import type { BookDto, CreateBookRequest } from '@wikiblog/dto';
+import type { BookDto, CreateBookRequest, PublicBookDto } from '@wikiblog/dto';
 import { BookRepository } from '../repositories/books.ts';
 import { HttpError } from './errors.ts';
 
@@ -6,6 +6,9 @@ type Input = Partial<Record<keyof CreateBookRequest, unknown>>;
 type Book = { id: string; space_id: string; slug: string; title: string; description: string };
 function toDto(book: Book): BookDto {
   return { id: book.id, spaceId: book.space_id, slug: book.slug, title: book.title, description: book.description };
+}
+function publicDto(book: Book & { handle: string }): PublicBookDto {
+  return { ...toDto(book), handle: book.handle };
 }
 function validate(body: Input): CreateBookRequest {
   const { slug, title, description } = body;
@@ -23,12 +26,21 @@ function duplicate(error: unknown): boolean {
 export class BookService {
   readonly repository: BookRepository;
   constructor(repository: BookRepository) { this.repository = repository; }
-  async list() { return (await this.repository.list()).map(toDto); }
+  async list() { return (await this.repository.list()).map(publicDto); }
   async listOwned(spaceId: string) { return (await this.repository.listOwned(spaceId)).map(toDto); }
   async get(id: string) {
     const book = await this.repository.find(id);
     if (!book) throw new HttpError(404, 'Book not found');
-    return toDto(book);
+    return publicDto(book);
+  }
+  async getBySlug(handle: unknown, slug: unknown) {
+    if (typeof handle !== 'string' || !/^[a-z0-9_-]{3,30}$/.test(handle) ||
+        typeof slug !== 'string' || slug.length > 80 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+      throw new HttpError(404, 'Book not found');
+    }
+    const book = await this.repository.findBySlug(handle, slug);
+    if (!book) throw new HttpError(404, 'Book not found');
+    return publicDto(book);
   }
   async create(spaceId: string, body: Input) {
     const values = validate(body);

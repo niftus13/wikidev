@@ -40,6 +40,21 @@ export interface BookDto extends Identified {
   description: string;
 }
 
+export interface PublicBookDto extends BookDto {
+  handle: string;
+}
+
+export interface SearchResultDto {
+  type: 'book' | 'page';
+  id: string;
+  title: string;
+  bookId: string;
+  bookSlug: string;
+  bookTitle: string;
+  handle: string;
+  excerpt: string;
+}
+
 export interface CreateBookRequest {
   slug: string;
   title: string;
@@ -47,3 +62,110 @@ export interface CreateBookRequest {
 }
 
 export interface UpdateBookRequest extends CreateBookRequest {}
+
+export interface PageDraftDto extends Identified {
+  bookId: string;
+  title: string;
+  body: string;
+  revision: number;
+}
+
+export interface PageVersionDto extends Identified {
+  pageId: string;
+  revision: number;
+  title: string;
+  body: string;
+  authorId: string;
+  createdAt: string;
+}
+
+export interface CreatePageRequest {
+  title: string;
+  body: string;
+}
+
+export interface UpdatePageRequest extends CreatePageRequest {
+  revision: number;
+}
+
+export interface RestorePageRequest {
+  versionId: string;
+  revision: number;
+}
+
+export interface PublishPageRequest {
+  revision: number;
+}
+
+export interface PublishedPageDto extends Identified {
+  bookId: string;
+  title: string;
+  body: string;
+  revision: number;
+}
+
+export interface TocEntryDto extends Identified {
+  parentId: string | null;
+  title: string;
+  position: number;
+}
+
+export interface OwnedTocEntryDto extends TocEntryDto {
+  published: boolean;
+}
+
+export interface OwnedTocDto {
+  revision: number;
+  pages: OwnedTocEntryDto[];
+}
+
+export interface MovePageRequest {
+  revision: number;
+  pageId: string;
+  parentId: string | null;
+  position: number;
+}
+
+export interface CategoryDto extends Identified {
+  name: string;
+  parentId: string | null;
+  scope: 'platform' | 'space' | 'book';
+}
+
+export interface PublicCategoryDto extends CategoryDto {
+  scopeLabel: string | null;
+}
+
+export interface CategoryInput {
+  name: string;
+  parentId: string | null;
+}
+
+export interface TagDto extends Identified {
+  name: string;
+}
+
+export interface PublicClassificationDto {
+  categories: CategoryDto[];
+  tags: TagDto[];
+}
+
+export interface BookClassificationInput {
+  platformCategoryId: string | null;
+  spaceCategoryId: string | null;
+  tagIds: string[];
+}
+
+export interface PageClassificationInput {
+  revision: number;
+  categoryId: string | null;
+  tagIds: string[];
+}
+
+export interface BookClassificationDto extends BookClassificationInput {}
+
+export interface PageClassificationDto {
+  revision: number;
+  categoryId: string | null;
+  tagIds: string[];
+}

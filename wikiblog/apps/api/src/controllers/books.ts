@@ -22,6 +22,9 @@ export class BookController {
     response.json(await this.service.listOwned(current.space_id));
   };
   get = async (request: Request, response: Response) => { response.json(await this.service.get(bookId(request))); };
+  getBySlug = async (request: Request, response: Response) => {
+    response.json(await this.service.getBySlug(request.params.handle, request.params.slug));
+  };
   create = async (request: Request, response: Response) => {
     const current = await this.auth.mutationSession(request);
     const body: Partial<Record<keyof CreateBookRequest, unknown>> = request.body ?? {};

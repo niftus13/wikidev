@@ -3,15 +3,27 @@ import type { Application, ErrorRequestHandler } from 'express';
 import type { Pool } from 'mysql2/promise';
 import { AuthController } from './controllers/auth.ts';
 import { BookController } from './controllers/books.ts';
+import { PageController } from './controllers/pages.ts';
+import { SearchController } from './controllers/search.ts';
+import { ClassificationController } from './controllers/classifications.ts';
 import type { SecurityConfig } from './controllers/auth.ts';
 import { AuthRepository } from './repositories/auth.ts';
 import { BookRepository } from './repositories/books.ts';
+import { PageRepository } from './repositories/pages.ts';
+import { SearchRepository } from './repositories/search.ts';
+import { ClassificationRepository } from './repositories/classifications.ts';
 import { authRoutes } from './routes/auth.ts';
 import { bookRoutes } from './routes/books.ts';
+import { pageRoutes } from './routes/pages.ts';
+import { searchRoutes } from './routes/search.ts';
+import { classificationRoutes } from './routes/classifications.ts';
 import { AuthService } from './services/auth.ts';
 import type { RedisClient } from './services/auth.ts';
 import { HttpError } from './services/errors.ts';
 import { BookService } from './services/books.ts';
+import { PageService } from './services/pages.ts';
+import { SearchService } from './services/search.ts';
+import { ClassificationService } from './services/classifications.ts';
 
 export function createApp(pool: Pool, redis: RedisClient, config: SecurityConfig): Application {
   const app = express();
@@ -40,6 +52,9 @@ export function createApp(pool: Pool, redis: RedisClient, config: SecurityConfig
   const auth = new AuthController(new AuthService(new AuthRepository(pool), redis), config);
   app.use('/api/v1', authRoutes(auth));
   app.use('/api/v1', bookRoutes(new BookController(new BookService(new BookRepository(pool)), auth)));
+  app.use('/api/v1', pageRoutes(new PageController(new PageService(new PageRepository(pool)), auth)));
+  app.use('/api/v1', searchRoutes(new SearchController(new SearchService(new SearchRepository(pool)))));
+  app.use('/api/v1', classificationRoutes(new ClassificationController(new ClassificationService(new ClassificationRepository(pool)), auth)));
 
   const errors: ErrorRequestHandler = (error: unknown, _request, response, _next) => {
     if (error instanceof HttpError) {
