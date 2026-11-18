@@ -228,7 +228,7 @@
 - 작성자 분류 관리는 `/dashboard/categories`와 `/dashboard/books/{bookId}/categories`에서 하며, 태그는 태그 관리에서만 생성합니다.
 - 웹 프록시는 클라이언트가 보낸 IP 헤더를 버리고 자신이 본 주소로 `X-Forwarded-For`를 다시 쓰며, API는 `TRUST_PROXY`로 지정한 주소·대역만 신뢰합니다(Compose는 웹 컨테이너 고정 주소 하나). 모든 주소를 믿는 설정은 거부합니다. 프록시 시간 제한은 30초(504)이고 개발·운영 프록시 경로는 서버 라우트 하나로 통일합니다.
 - CI는 GitHub Actions 서비스 컨테이너(MySQL 8.4·Redis 7.4)에서 API를 직접 실행해 통합 테스트하고, 건너뛴 테스트가 있으면 실패합니다. PR과 `main` push(`wikiblog/**` 경로)에서 Node 24로 실행하며, 원격 push는 사용자 승인 후 합니다.
-- 운영 환경에는 리버스 프록시와 CDN을 둡니다. 신뢰 체인은 운영 배포에서 다시 설계합니다.
+- 운영 환경은 AWS EC2 인스턴스이며 앞단에 리버스 프록시와 CDN을 둡니다. 신뢰 체인과 운영용 이미지·Compose는 운영 배포에서 설계합니다([체크리스트](docs/checkpoints/ops-deploy-checklist.md)).
 - 사용자 공간은 `/@{handle}`에 SSR로 공개하고, 대문자 handle은 소문자 URL로 301 리다이렉트합니다. 공간 소개는 일반 텍스트(최대 500자)이며 내 책 관리 상단에서 편집하고 즉시 공개합니다.
 
 ## 검증 기록
