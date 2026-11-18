@@ -1,6 +1,6 @@
 import type { OwnedTocEntryDto } from '@wikiblog/dto';
 
-export function possibleParents(pages: OwnedTocEntryDto[], pageId: string): OwnedTocEntryDto[] {
+export function possibleParents<T extends { id: string; parentId: string | null }>(pages: T[], pageId: string): T[] {
   const excluded = new Set([pageId]);
   const pending = [pageId];
   while (pending.length) {

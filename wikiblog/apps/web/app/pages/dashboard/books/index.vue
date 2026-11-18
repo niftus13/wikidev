@@ -15,6 +15,23 @@ const deletingId = ref<string | null>(null);
 const form = reactive<CreateBookRequest>({ slug: '', title: '', description: '' });
 const actionError = ref('');
 const notice = ref('');
+const classifyingId = ref<string | null>(null);
+const classificationPanel = ref<Array<{ changed: boolean; busy: boolean }>>([]);
+const classificationChanged = () => classificationPanel.value.some((panel) => panel.changed || panel.busy);
+function toggleClassification(book: BookDto) {
+  if (classifyingId.value === book.id) return closeClassification();
+  if (classifyingId.value && classificationChanged()
+    && !window.confirm('저장하지 않은 분류 변경이 있습니다. 다른 책의 분류를 여시겠습니까?')) return;
+  classifyingId.value = book.id;
+  deletingId.value = null;
+  actionError.value = '';
+}
+function closeClassification() {
+  if (classificationChanged() && !window.confirm('저장하지 않은 분류 변경이 있습니다. 분류 패널을 닫으시겠습니까?')) return;
+  classifyingId.value = null;
+}
+onBeforeRouteLeave(() => !classificationChanged()
+  || window.confirm('저장하지 않은 분류 변경이 있습니다. 이 화면을 나가시겠습니까?'));
 
 async function load() {
   loading.value = true;
@@ -112,7 +129,7 @@ async function logout() {
   <div class="container dashboard-page narrow">
     <p class="eyebrow">AUTHOR</p>
     <div class="section-heading">
-      <div><h1>내 책 관리</h1><p>책을 만들고 소개를 관리하세요.</p></div>
+      <div><h1>내 책 관리</h1><p>책을 만들고 소개를 관리하세요. <NuxtLink v-if="session" class="text-link" to="/dashboard/categories">분류 관리</NuxtLink></p></div>
       <button v-if="session && !formMode" class="button button-primary" type="button" :disabled="busy" @click="openForm()">새 책 만들기</button>
     </div>
     <p v-if="loading" class="state" role="status">계정과 책을 불러오는 중입니다.</p>
@@ -156,9 +173,11 @@ async function logout() {
           <div class="managed-book-actions">
             <NuxtLink class="text-link" :to="bookPath(session.space.handle, book.slug)">공개 책 보기</NuxtLink>
             <NuxtLink class="text-link" :to="`/dashboard/books/${book.id}/pages`">페이지 관리</NuxtLink>
+            <button class="link-button" type="button" :disabled="busy || !!formMode" :aria-expanded="classifyingId === book.id" @click="toggleClassification(book)">분류</button>
             <button class="link-button" type="button" :disabled="busy || !!formMode" @click="openForm(book)">수정</button>
             <button class="link-button danger-link" type="button" :disabled="busy || !!formMode" @click="deletingId = book.id; actionError = ''">삭제</button>
           </div>
+          <BookClassificationPanel v-if="classifyingId === book.id" ref="classificationPanel" :book-id="book.id" :csrf-token="session.csrfToken" @close="closeClassification" />
           <div v-if="deletingId === book.id" class="delete-confirm">
             <p>책과 모든 페이지가 삭제되며 복구할 수 없습니다. 삭제하시겠습니까?</p>
             <button class="button button-danger" type="button" :disabled="busy" @click="remove(book)">{{ busy ? '삭제 중…' : '삭제 확인' }}</button>

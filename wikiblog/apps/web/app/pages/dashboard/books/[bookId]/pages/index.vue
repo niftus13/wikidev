@@ -171,7 +171,7 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', warnBeforeUnloa
     <div class="breadcrumbs"><NuxtLink to="/dashboard/books">내 책 관리</NuxtLink><span>/</span><span>페이지 관리</span></div>
     <p class="eyebrow dashboard-eyebrow">AUTHOR · PAGES</p>
     <div class="section-heading">
-      <div><h1>페이지 관리</h1><p v-if="book">{{ book.title }}</p></div>
+      <div><h1>페이지 관리</h1><p v-if="book">{{ book.title }} · <NuxtLink class="text-link" :to="`/dashboard/books/${bookId}/categories`">페이지 카테고리</NuxtLink></p></div>
       <button v-if="book && toc && !creating && !movingId" class="button button-primary" type="button" :disabled="busy" @click="creating = true; deletingId = null; error = ''; notice = ''">새 페이지</button>
     </div>
     <p v-if="loading" class="state" role="status">페이지를 불러오는 중입니다.</p>

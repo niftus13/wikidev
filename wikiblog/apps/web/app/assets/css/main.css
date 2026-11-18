@@ -178,6 +178,17 @@ h1, h2, h3, p { margin-top: 0; }
 .version-preview { margin-top: 20px; overflow-wrap: anywhere; }
 .version-preview h3 { font-size: 16px; }
 .version-preview > .button { margin-top: 12px; }
+.classification-panel { flex-basis: 100%; padding: 16px; border: 1px solid var(--line); border-radius: 7px; overflow-wrap: anywhere; }
+.classification-panel h3, .classification-form-heading { margin: 0; font-size: 16px; }
+.category-item { padding-left: calc(min(var(--depth, 0), 6) * 20px); }
+.category-item h3, .tag-list h3 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+.category-list li, .tag-list li { padding: 14px 0; }
+.tag-choices { display: flex; flex-wrap: wrap; gap: 8px 16px; min-width: 0; margin: 8px 0 0; padding: 12px; border: 1px solid #ccd7e4; border-radius: 7px; }
+.tag-choices legend { padding: 0 4px; font-size: 14px; font-weight: 700; }
+.editor-form .tag-choice { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-weight: 400; overflow-wrap: anywhere; }
+.editor-form .tag-choice input { width: auto; }
+.inline-field { display: flex; flex-wrap: wrap; gap: 10px; }
+.inline-field input { flex: 1 1 200px; }
 @media (max-width: 800px) {
   .hero-art { display: none; }
   .book-grid { grid-template-columns: repeat(2, 1fr); }

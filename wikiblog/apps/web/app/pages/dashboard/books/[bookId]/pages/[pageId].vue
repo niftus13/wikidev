@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { BookDto, OwnedTocDto, PageDraftDto, PageVersionDto, PublishPageRequest, RestorePageRequest, SessionResponse, UpdatePageRequest } from '@wikiblog/dto';
+import type { BookDto, OwnedTocDto, PageClassificationDto, PageDraftDto, PageVersionDto, PublishPageRequest, RestorePageRequest, SessionResponse, UpdatePageRequest } from '@wikiblog/dto';
 import { apiErrorStatus } from '~/utils/apiError';
 import { renderMarkdown } from '~/utils/markdown';
 import { pagePath } from '~/utils/paths';
@@ -25,6 +25,8 @@ const versions = ref<PageVersionDto[]>([]);
 const historyError = ref('');
 const selectedVersionId = ref<string | null>(null);
 const confirmingRestore = ref(false);
+const classificationPanel = ref<{ changed: boolean; reload: () => Promise<void> } | null>(null);
+const classificationChanged = computed(() => classificationPanel.value?.changed ?? false);
 const dirty = computed(() => draft.value !== null && (form.title !== draft.value.title || form.body !== draft.value.body));
 const bodyBytes = computed(() => new TextEncoder().encode(form.body).length);
 const rendered = computed(() => preview.value ? renderMarkdown(form.body) : '');
@@ -89,6 +91,31 @@ async function save() {
     busy.value = false;
   }
 }
+async function onClassificationSaved(result: PageClassificationDto) {
+  // 분류 저장도 새 revision을 만든다. 갱신하지 않으면 다음 본문 저장·발행이 409로 실패한다.
+  if (draft.value) draft.value = { ...draft.value, revision: result.revision };
+  error.value = '';
+  notice.value = '';
+  if (historyOpen.value) await refreshVersions();
+}
+async function reloadDraft() {
+  if (busy.value || dirty.value) return;
+  busy.value = true;
+  error.value = '';
+  notice.value = '';
+  try {
+    const page = await $fetch<PageDraftDto>(`/api/v1/me/pages/${pageId}`);
+    draft.value = page;
+    form.title = page.title;
+    form.body = page.body;
+    notice.value = `최신 초안(revision ${page.revision})을 불러왔습니다.`;
+    if (historyOpen.value) await refreshVersions();
+  } catch (cause) {
+    error.value = `최신 초안을 불러오지 못했습니다. ${message(cause, 'save')}`;
+  } finally {
+    busy.value = false;
+  }
+}
 async function refreshVersions() {
   historyError.value = '';
   try {
@@ -108,7 +135,7 @@ async function openHistory() {
   }
 }
 async function restore() {
-  if (busy.value || dirty.value || !session.value || !draft.value || !selectedVersion.value) return;
+  if (busy.value || dirty.value || classificationChanged.value || !session.value || !draft.value || !selectedVersion.value) return;
   busy.value = true;
   historyError.value = '';
   error.value = '';
@@ -124,7 +151,7 @@ async function restore() {
     confirmingRestore.value = false;
     selectedVersionId.value = null;
     notice.value = '이력을 새 초안으로 복원했습니다. 공개하려면 다시 발행하세요.';
-    await refreshVersions();
+    await Promise.all([refreshVersions(), classificationPanel.value?.reload()]);
   } catch (cause) {
     historyError.value = message(cause, 'restore');
   } finally {
@@ -154,12 +181,12 @@ function canLeave() {
     error.value = '요청이 처리되는 동안 기다려 주세요.';
     return false;
   }
-  return !dirty.value || window.confirm('저장하지 않은 변경 사항이 있습니다. 이 화면을 나가시겠습니까?');
+  return !(dirty.value || classificationChanged.value) || window.confirm('저장하지 않은 변경 사항이 있습니다. 이 화면을 나가시겠습니까?');
 }
 onBeforeRouteLeave(canLeave);
 onBeforeRouteUpdate(canLeave);
 function warnBeforeUnload(event: BeforeUnloadEvent) {
-  if (dirty.value || busy.value) event.preventDefault();
+  if (dirty.value || classificationChanged.value || busy.value) event.preventDefault();
 }
 onMounted(() => window.addEventListener('beforeunload', warnBeforeUnload));
 onBeforeUnmount(() => window.removeEventListener('beforeunload', warnBeforeUnload));
@@ -199,6 +226,17 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', warnBeforeUnloa
         <h2 id="preview-heading">미리보기</h2>
         <div class="markdown-body" v-html="rendered" />
       </section>
+      <PageClassificationPanel
+        ref="classificationPanel"
+        v-model:busy="busy"
+        :page-id="pageId"
+        :book-id="bookId"
+        :csrf-token="session.csrfToken"
+        :revision="draft.revision"
+        :dirty="dirty"
+        @saved="onClassificationSaved"
+        @reload-draft="reloadDraft"
+      />
       <section class="editor-panel" aria-labelledby="history-heading">
         <div class="history-heading">
           <h2 id="history-heading">변경 이력</h2>
@@ -221,11 +259,11 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', warnBeforeUnloa
             <h3>revision {{ selectedVersion.revision }} · {{ selectedVersion.title }}</h3>
             <div class="markdown-body" v-html="renderedVersion" />
             <p v-if="!selectedVersion.body" class="field-help">본문이 비어 있습니다.</p>
-            <p v-if="dirty" class="field-help">복원하려면 현재 변경 사항을 저장하거나 입력을 보관하고 새로고침하세요.</p>
-            <button v-if="!confirmingRestore" class="button button-secondary" type="button" :disabled="busy || dirty" @click="confirmingRestore = true">이 버전 복원</button>
+            <p v-if="dirty || classificationChanged" class="field-help">복원하려면 현재 변경 사항(분류 포함)을 저장하거나 입력을 보관하고 새로고침하세요.</p>
+            <button v-if="!confirmingRestore" class="button button-secondary" type="button" :disabled="busy || dirty || classificationChanged" @click="confirmingRestore = true">이 버전 복원</button>
             <div v-else class="delete-confirm">
               <p>현재 저장된 초안을 이 이력으로 복원하시겠습니까? 복원은 새 이력을 만들고 공개본은 유지합니다.</p>
-              <button class="button button-primary" type="button" :disabled="busy || dirty" @click="restore">복원 확인</button>
+              <button class="button button-primary" type="button" :disabled="busy || dirty || classificationChanged" @click="restore">복원 확인</button>
               <button class="button button-secondary" type="button" :disabled="busy" @click="confirmingRestore = false">취소</button>
             </div>
           </div>
