@@ -9,7 +9,8 @@
 목차·이력·분류 관리 화면은 실제 API 흐름(curl)과 웹 타입 검사·빌드·단위 테스트로 확인했으나,
 작업 환경에 실행 가능한 브라우저가 없어 실제 브라우저 검증은 남아 있습니다.
 사용자 공간 화면과 운영은 아직 구현되지 않았습니다.
-작성자 화면 체크포인트 요구사항은 [docs/checkpoints/author-management-ui.md](docs/checkpoints/author-management-ui.md)에 있습니다.
+다음 체크포인트는 **사용자 공간 화면**이며 요구사항은 [docs/checkpoints/user-space-ui.md](docs/checkpoints/user-space-ui.md)에서 확정했습니다.
+완료한 작성자 화면 요구사항은 [docs/checkpoints/author-management-ui.md](docs/checkpoints/author-management-ui.md)에 있습니다.
 
 ## 체크포인트
 
@@ -108,6 +109,23 @@
   불러올 수 있습니다. 복원 후 분류 패널을 다시 불러옵니다. 발행 버튼의 동작은 바꾸지 않았습니다.
 - 백엔드 API·DTO는 변경하지 않았습니다.
 
+### 2026-11-18: Claude Code 하네스 구성
+
+- `CLAUDE.md`가 `.github/copilot-instructions.md`를 import하고, `.claude/rules`·`.claude/skills`는
+  `.github` 원본의 심볼릭 링크, `.claude/agents`는 Claude 도구 형식의 별도 파일로 구성했습니다.
+- 경로별 지침에 Claude용 `paths`를 추가하고, 구현 상태·발행 취소 보류에 맞게 공통 지침과 스킬을 고쳤습니다.
+- 세션에서 `CLAUDE.md`와 경로별 지침의 자동 로딩을 확인했습니다. 스킬·에이전트 목록 로딩은
+  새 세션에서 확인이 필요합니다.
+- Notion 설계안에 구현 현황(§0)과 설계 대비 변경점을 반영했습니다.
+
+### 2026-11-18: 사용자 공간 화면 요구사항 확정
+
+- 요구사항: [docs/checkpoints/user-space-ui.md](docs/checkpoints/user-space-ui.md) (Q1~Q3 추천안 A).
+- 공간의 공개 책 목록 API가 없어 `GET /api/v1/spaces/{handle}/books`를 추가합니다(`backend-engineer`).
+- `/@{handle}` SSR 공개 공간 화면, 내 책 관리 상단의 **내 공간** 소개 편집 패널,
+  홈·검색·독서 화면의 `@handle` 링크를 구현합니다(`frontend-engineer`).
+- 구현은 아직 시작하지 않았습니다.
+
 ## 마일스톤
 
 | 단계 | 상태 | 진행 내용과 남은 작업 |
@@ -118,7 +136,7 @@
 | 공개 검색·독서 화면 | 구현 완료 | 공개 검색 API, 책 목록·검색·독서 화면 |
 | 공개 분류 | 구현 완료 | 카테고리·태그 API와 공개 필터; 플랫폼 관리·시드 보류 |
 | 작성자 화면 | 구현 완료 (브라우저 검증 남음) | 인증·책·페이지 편집·발행, 목차 이동·이력 복원, 분류 관리 UI; 실제 API 흐름·타입 검사·빌드 확인, 실제 브라우저·키보드·모바일 확인 필요 |
-| 사용자 공간 화면 | 미구현 | 설계안의 `/@{handle}` 공개 공간과 공간 소개 편집 화면 (API는 구현됨) |
+| 사용자 공간 화면 | 요구사항 확정 | 공간 책 목록 API, `/@{handle}` 공개 공간, 공간 소개 편집, `@handle` 링크 ([요구사항](docs/checkpoints/user-space-ui.md)) |
 | 운영 | 미구현 | CI, 운영 배포·HTTPS·백업·모니터링 필요 |
 
 ## 다음 구현에 적용할 결정 사항
@@ -133,6 +151,8 @@
 - 카테고리 삭제는 하위 분류나 연결 콘텐츠가 있으면 거부합니다. 카테고리 검색은 하위 분류를 포함합니다.
 - 태그는 앞뒤 공백과 선행 `#`을 제거하고 영문 대소문자를 무시해 중복을 판단합니다.
 - 플랫폼 카테고리는 공개 조회만 제공하고 운영자 인증·관리 API는 보류합니다.
+- 작성자 분류 관리는 `/dashboard/categories`와 `/dashboard/books/{bookId}/categories`에서 하며, 태그는 태그 관리에서만 생성합니다.
+- 사용자 공간은 `/@{handle}`에 SSR로 공개하고, 대문자 handle은 소문자 URL로 301 리다이렉트합니다. 공간 소개는 일반 텍스트(최대 500자)이며 내 책 관리 상단에서 편집하고 즉시 공개합니다.
 
 ## 검증 기록
 
