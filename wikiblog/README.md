@@ -167,13 +167,42 @@ Docker와 Docker Compose가 필요합니다.
 1. `.env.example`을 `.env`로 복사하고 두 비밀번호를 각각 안전한 임의 값으로 변경합니다.
 2. `docker compose up --build -d`를 실행합니다.
 3. 웹은 <http://localhost:3000>, API 상태 확인은 <http://localhost:4000/api/health>에서 확인합니다.
-   웹의 `/api/health`도 개발 프록시를 통해 같은 API로 연결됩니다.
+   웹의 `/api/health`도 웹 서버의 API 프록시를 통해 같은 API로 연결됩니다.
 4. 중지는 `docker compose down`으로 합니다. MySQL 데이터 볼륨은 유지됩니다.
 
 웹 앱과 API 소스는 컨테이너에 마운트되어 개발 중 변경을 반영합니다.
 웹 서버 코드, 공유 라이브러리, 패키지나 설정 파일을 변경하면 `docker compose up --build -d`로 이미지를 다시 만듭니다.
 Nuxt 서버의 API 프록시 대상은 `API_PROXY_TARGET`으로 설정하며, 프로덕션 빌드 실행 시에는
 런타임 환경 변수 `NUXT_API_PROXY_TARGET`으로 변경할 수 있습니다.
+
+#### API 프록시와 클라이언트 주소
+
+- 웹의 `/api/**`는 개발(`nuxt dev`)과 운영 모두 `apps/web/server/api/[...path].ts` 한 곳에서 API로 전달합니다
+  (`nitro.devProxy`는 쓰지 않습니다).
+- 프록시는 클라이언트가 보낸 `X-Forwarded-*`, `X-Real-IP`, `Forwarded`를 버리고, 자신이 직접 본 연결 주소
+  하나로 `X-Forwarded-For`를 새로 씁니다. 개발 서버에서는 Nitro 워커가 유닉스 소켓 뒤에 있어 주소를 직접 알 수
+  없으므로, 개발 서버 첫 hop(`nuxt.config.ts`의 `devServerHandlers`)이 같은 방식으로 헤더를 다시 씁니다.
+  SSR 내부 호출은 운영 빌드에서 연결 주소가 없어 `X-Forwarded-For` 없이 전달됩니다(웹 서버 주소로 집계).
+  이 구성은 웹이 첫 hop이라고 가정합니다. 웹 앞에 리버스 프록시를 두는 운영 구성은 별도 설계가 필요합니다.
+- 프록시 시간 제한은 기본 30초이며 `NUXT_API_PROXY_TIMEOUT_MS`(밀리초, 양의 정수)로 바꿉니다.
+  넘으면 `504 {"error":"Upstream timeout"}`을 반환합니다. 잘못된 값이면 `/api` 요청이 500으로 실패합니다.
+  Compose에서는 `.env`의 `NUXT_API_PROXY_TIMEOUT_MS`가 웹 컨테이너로 전달됩니다.
+- API의 `TRUST_PROXY`는 `X-Forwarded-For`를 믿을 프록시 주소입니다. 쉼표로 구분한 IP, CIDR
+  (접두사 1 이상), `loopback`, `linklocal`, `uniquelocal`만 허용합니다. 비어 있으면 프록시를 믿지 않고
+  직전 연결 주소로 요청 제한을 집계합니다. `true`, 숫자 hop 수, `*`, `0.0.0.0/0`처럼 모든 주소를 믿는 값이나
+  형식이 잘못된 값은 시작 시 오류입니다.
+- **위조 위험**: 신뢰 범위에 든 주소는 `X-Forwarded-For`로 임의의 클라이언트 주소를 주장할 수 있습니다.
+  신뢰 범위가 넓으면(예: `uniquelocal`) 같은 사설망의 다른 컨테이너·호스트가 요청 제한 키를 바꿔
+  제한을 우회할 수 있으므로, 실제 프록시 주소만 지정합니다.
+- Compose는 웹과 API 사이에 전용 네트워크 `web-api`(`WEB_API_SUBNET`, 기본 `10.231.0.0/29`)를 만들고
+  웹 컨테이너에 고정 주소 `WEB_PROXY_IP`(기본 `10.231.0.6`, 대역의 마지막 주소)를 줍니다. API의
+  `TRUST_PROXY`는 이 주소 하나입니다. 같은 호스트에서 Compose 프로젝트를 둘 이상(예: git worktree) 띄우면
+  `.env`에서 두 값을 겹치지 않게 바꿉니다(예: `10.231.0.8/29`, `10.231.0.14`). 이 대역이 호스트의 다른
+  네트워크와 겹치면 네트워크 생성이 실패하므로 그때도 두 값을 바꿉니다.
+- 호스트에서 `127.0.0.1:4000`으로 API를 직접 호출하면 API는 Compose 기본 네트워크의 게이트웨이 주소
+  (확인 시 `172.21.0.1`)에서 온 연결로 보며, 이 주소는 신뢰 범위 밖이므로 `X-Forwarded-For`는 무시됩니다.
+  호스트에서 웹(3000)으로 보낸 요청은 `web-api` 네트워크의 게이트웨이 주소(확인 시 `10.231.0.9`)로 집계되므로,
+  로컬 개발에서는 호스트의 모든 브라우저 요청이 하나의 키를 공유합니다.
 MySQL과 Redis는 호스트에 포트를 공개하지 않습니다. `.env`의 MySQL 비밀번호는
 최초 데이터베이스 생성 시 적용되며, 기존 볼륨이 있으면 변경만으로 갱신되지 않습니다.
 
@@ -192,13 +221,15 @@ MySQL과 Redis는 호스트에 포트를 공개하지 않습니다. `.env`의 My
 설정된 `Origin`과 `Content-Type: application/json`이 필요하며, 로그아웃과 공간 변경에는
 `X-CSRF-Token`도 필요합니다. 이메일은 소문자로 정규화하고, handle은 영문 소문자·숫자·
 `_`·`-`로 3~30자입니다. 비밀번호는 12자 이상, UTF-8 기준 1024바이트 이하여야 합니다.
-가입과 로그인에는 IP별 15분당 20회의 Redis 요청 제한이 적용됩니다.
+가입과 로그인에는 IP별 15분당 20회의 Redis 요청 제한이 적용됩니다. IP는 Express `request.ip`이며
+(`TRUST_PROXY`, [API 프록시와 클라이언트 주소](#api-프록시와-클라이언트-주소) 참고), IPv4-mapped IPv6
+(`::ffff:a.b.c.d`)는 IPv4로 정규화합니다. 이메일 등 계정 기준 제한은 없습니다.
 
 Compose는 API 시작 전 MySQL 마이그레이션을 적용합니다. 로컬에서 직접 실행할 때는
 필요한 MySQL 환경 변수를 설정하고 `pnpm --filter @wikiblog/api migrate`를 실행합니다.
 개발 환경은 `http://localhost:3000`에서만 보안 쿠키 없이 동작하도록 설정되어 있습니다.
 공개 서비스에서는 HTTPS `APP_ORIGIN`과 `COOKIE_SECURE=true`가 필요하며,
-운영 배포·프록시 및 요청 제한 정책은 별도로 구성해야 합니다.
+운영 배포(웹 앞 리버스 프록시 포함)와 추가 요청 제한 정책은 별도로 구성해야 합니다.
 
 ### 책 API
 

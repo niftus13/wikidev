@@ -1,9 +1,10 @@
+import { isIPv4 } from 'node:net';
 import type { Request, Response } from 'express';
 import type { LoginRequest, RegisterRequest, UpdateSpaceRequest } from '@wikiblog/dto';
 import { AuthService } from '../services/auth.ts';
 import { HttpError } from '../services/errors.ts';
 
-export type SecurityConfig = { origin: string; secureCookie: boolean };
+export type SecurityConfig = { origin: string; secureCookie: boolean; trustProxy?: string[] | undefined };
 const COOKIE_NAME = 'wikiblog_session';
 const SESSION_SECONDS = 7 * 24 * 60 * 60;
 
@@ -13,6 +14,15 @@ export function sessionCookie(request: Request): string | null {
   if (matches.length !== 1) return null;
   const value = matches[0]!.slice(COOKIE_NAME.length + 1);
   return /^[a-f0-9]{64}$/.test(value) ? value : null;
+}
+
+// 같은 IPv4 클라이언트가 IPv4-mapped IPv6 형식(::ffff:a.b.c.d)과 IPv4 형식으로 나뉘어 집계되지 않게 한다.
+export function clientAddress(ip: string | undefined): string | undefined {
+  if (ip?.toLowerCase().startsWith('::ffff:')) {
+    const mapped = ip.slice(7);
+    if (isIPv4(mapped)) return mapped;
+  }
+  return ip;
 }
 
 export class AuthController {
@@ -30,14 +40,14 @@ export class AuthController {
     return current;
   }
   register = async (request: Request, response: Response) => {
-    await this.service.limit(request.ip, 'register');
+    await this.service.limit(clientAddress(request.ip), 'register');
     const body: Partial<Record<keyof RegisterRequest, unknown>> = request.body ?? {};
     const result = await this.service.register(body, sessionCookie(request));
     response.cookie(COOKIE_NAME, result.sessionToken, { ...this.cookieOptions(), maxAge: SESSION_SECONDS * 1000 });
     response.status(201).json(result.response);
   };
   login = async (request: Request, response: Response) => {
-    await this.service.limit(request.ip, 'login');
+    await this.service.limit(clientAddress(request.ip), 'login');
     const body: Partial<Record<keyof LoginRequest, unknown>> = request.body ?? {};
     const result = await this.service.login(body, sessionCookie(request));
     response.cookie(COOKIE_NAME, result.sessionToken, { ...this.cookieOptions(), maxAge: SESSION_SECONDS * 1000 });

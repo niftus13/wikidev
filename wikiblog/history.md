@@ -9,7 +9,7 @@
 사용자 공간 화면(`/@{handle}`, 내 공간 소개 편집)을 구현했습니다.**
 작성자 화면과 사용자 공간 화면은 실제 API 흐름(curl)·SSR 응답과 웹 타입 검사·빌드·단위 테스트로 확인했으나,
 작업 환경에 실행 가능한 브라우저가 없어 실제 브라우저 검증은 남아 있습니다.
-운영은 아직 구현되지 않았습니다.
+운영은 첫 체크포인트(프록시 신뢰 경계와 요청 제한)만 구현했고 CI·E2E·운영 배포·백업은 남아 있습니다.
 사용자 공간 화면 요구사항은 [docs/checkpoints/user-space-ui.md](docs/checkpoints/user-space-ui.md)에 있습니다.
 완료한 작성자 화면 요구사항은 [docs/checkpoints/author-management-ui.md](docs/checkpoints/author-management-ui.md)에 있습니다.
 
@@ -153,6 +153,29 @@
 - 개발 서버의 `nitro.devProxy`와 운영 서버 라우트로 프록시 경로가 나뉘어 있을 수 있어 하나로 통일합니다.
 - 구현은 아직 시작하지 않았습니다.
 
+### 2026-11-18: 운영 1 — 프록시 신뢰 경계와 요청 제한
+
+- 요구사항: [docs/checkpoints/ops-proxy-rate-limit.md](docs/checkpoints/ops-proxy-rate-limit.md) (Q1~Q4 추천안 A).
+- B-1 확인: `nuxt dev`에서 브라우저의 `/api` 요청은 `nitro.devProxy`(httpxy)가 처리했습니다. Nitro 개발 서버가
+  `devProxy`를 워커(서버 라우트)보다 먼저 등록하며, 같은 echo 서버로 보낸 요청에 `devProxy`만 붙이는
+  `x-forwarded-port`·`x-forwarded-proto`가 있고 클라이언트의 `X-Forwarded-For`가 그대로 전달되었습니다.
+  SSR 내부 호출(`useRequestFetch`)만 `server/api/[...path].ts`를 거쳤습니다. 즉 개발과 운영의 프록시 코드가 달랐습니다.
+- A. API: `TRUST_PROXY`(IP·CIDR 목록, `loopback`·`linklocal`·`uniquelocal`)를 `config.ts`에서 검증하고
+  설정 시에만 Express `trust proxy`에 적용합니다. `true`·숫자·`*`·`/0`·잘못된 형식은 시작 시 오류입니다.
+  요청 제한 키는 `request.ip`이며 `::ffff:a.b.c.d`는 IPv4로 정규화합니다. 제한 횟수(15분 20회)는 그대로입니다.
+- B. 웹: `nitro.devProxy`를 제거하고 개발·운영 모두 `server/api/[...path].ts`가 `/api`를 전달합니다.
+  헤더 처리 순수 함수(`server/utils/apiProxy.ts`)가 클라이언트의 `X-Forwarded-*`·`X-Real-IP`·`Forwarded`를 버리고
+  프록시가 본 연결 주소 하나로 `X-Forwarded-For`를 씁니다. 쿠키·CSRF·Origin·Content-Type은 유지합니다.
+  `nuxt dev`의 Nitro 워커는 유닉스 소켓 뒤에 있어 소켓 주소가 없으므로, 개발 서버 첫 hop
+  (`devServerHandlers`)이 같은 방식으로 헤더를 다시 쓰고 워커는 개발 모드에서만 그 값을 씁니다.
+  운영 빌드의 SSR 내부 호출은 연결 주소가 없어 `X-Forwarded-For` 없이 전달됩니다.
+  시간 제한은 기본 30초(`NUXT_API_PROXY_TIMEOUT_MS`)이고 넘으면 504 `{"error":"Upstream timeout"}`입니다.
+  웹 화면의 `apiErrorStatus`는 504를 일반 오류로 처리하므로 충돌하지 않습니다.
+- C. Compose: 웹·API 전용 네트워크 `web-api`(`WEB_API_SUBNET`, 기본 `10.231.0.0/29`)를 만들고 웹에 고정 주소
+  `WEB_PROXY_IP`(기본 `10.231.0.6`)를 주어 API `TRUST_PROXY`를 그 주소 하나로 설정했습니다(대역보다 좁음).
+  worktree 스택은 `.env`에서 `10.231.0.8/29`·`10.231.0.14`를 씁니다. README "실행"과 `.env.example`을 갱신했습니다.
+- 계정(이메일) 기준 로그인 제한은 하지 않았습니다(Q4, 미결 정책으로 유지).
+
 ## 마일스톤
 
 | 단계 | 상태 | 진행 내용과 남은 작업 |
@@ -164,7 +187,7 @@
 | 공개 분류 | 구현 완료 | 카테고리·태그 API와 공개 필터; 플랫폼 관리·시드 보류 |
 | 작성자 화면 | 구현 완료 (브라우저 검증 남음) | 인증·책·페이지 편집·발행, 목차 이동·이력 복원, 분류 관리 UI; 실제 API 흐름·타입 검사·빌드 확인, 실제 브라우저·키보드·모바일 확인 필요 |
 | 사용자 공간 화면 | 구현 완료 (브라우저 검증 남음) | 공간 책 목록 API, `/@{handle}` 공개 공간, 내 공간 소개 편집, `@handle` 링크; SSR 응답·실제 API·타입 검사·빌드 확인, 실제 브라우저·키보드·모바일 확인 필요 ([요구사항](docs/checkpoints/user-space-ui.md)) |
-| 운영 | 요구사항 확정 | 운영 1: 프록시 신뢰 경계와 요청 제한 ([요구사항](docs/checkpoints/ops-proxy-rate-limit.md)); 이후 CI, E2E, 운영 배포·HTTPS, 백업·모니터링 |
+| 운영 | 진행 중 (운영 1 구현 완료) | 운영 1: 프록시 신뢰 경계와 요청 제한 구현·검증 ([요구사항](docs/checkpoints/ops-proxy-rate-limit.md)); 남은 작업: CI, E2E, 운영 배포·HTTPS(웹 앞 리버스 프록시 포함), 백업·모니터링 |
 
 ## 다음 구현에 적용할 결정 사항
 
@@ -179,7 +202,7 @@
 - 태그는 앞뒤 공백과 선행 `#`을 제거하고 영문 대소문자를 무시해 중복을 판단합니다.
 - 플랫폼 카테고리는 공개 조회만 제공하고 운영자 인증·관리 API는 보류합니다.
 - 작성자 분류 관리는 `/dashboard/categories`와 `/dashboard/books/{bookId}/categories`에서 하며, 태그는 태그 관리에서만 생성합니다.
-- 웹 프록시는 클라이언트가 보낸 IP 헤더를 버리고 자신이 본 주소로 `X-Forwarded-For`를 다시 쓰며, API는 `TRUST_PROXY`로 지정한 대역만 신뢰합니다. 모든 주소를 믿는 설정은 거부합니다. 프록시 시간 제한은 30초(504)이고 개발·운영 프록시 경로는 서버 라우트 하나로 통일합니다.
+- 웹 프록시는 클라이언트가 보낸 IP 헤더를 버리고 자신이 본 주소로 `X-Forwarded-For`를 다시 쓰며, API는 `TRUST_PROXY`로 지정한 주소·대역만 신뢰합니다(Compose는 웹 컨테이너 고정 주소 하나). 모든 주소를 믿는 설정은 거부합니다. 프록시 시간 제한은 30초(504)이고 개발·운영 프록시 경로는 서버 라우트 하나로 통일합니다.
 - 사용자 공간은 `/@{handle}`에 SSR로 공개하고, 대문자 handle은 소문자 URL로 301 리다이렉트합니다. 공간 소개는 일반 텍스트(최대 500자)이며 내 책 관리 상단에서 편집하고 즉시 공개합니다.
 
 ## 검증 기록
@@ -231,13 +254,32 @@
   Origin 없음 403, 비JSON 415, CSRF 없는 로그아웃 403, 로그아웃 204 후 기존 쿠키 401, 다른 세션 유지,
   로그인 후 고정 경로 이동(외부 리다이렉트 없음)을 확인했습니다.
 
+- 운영 1 프록시 신뢰 경계 체크포인트 (2026-11-18): `pnpm build:libs`, `pnpm typecheck`(API),
+  `pnpm --filter @wikiblog/web typecheck`·`build` 통과. API 단위 테스트 13개 통과(새 클라이언트 IP·`TRUST_PROXY`·429 분리 10개,
+  통합 7개는 환경 변수 없이 건너뜀), 웹 단위 테스트 18개 통과(새 프록시 헤더·시간 제한 7개).
+  `docker compose -p wikiblog-wt up --build -d` 후 Docker의 실제 MySQL·Redis 통합 포함 API 테스트 20개 통과(실패·건너뜀 0개).
+  실제 스택에서 웹 프록시 경유 실패 로그인 4회(위조 `X-Forwarded-For`·`X-Real-IP`·`Forwarded` 포함)는 모두
+  `auth-rate:login:10.231.0.9`(호스트 → 웹 연결 주소)로, 다른 클라이언트(API 컨테이너 10.231.0.10에서 웹으로)의 요청은
+  `auth-rate:login:10.231.0.10`으로 나뉘었고 위조값 키는 생기지 않았습니다. 호스트에서 `127.0.0.1:4000`으로 위조 XFF를 붙여
+  직접 보낸 요청은 `auth-rate:login:172.21.0.1`(기본 네트워크 게이트웨이, 신뢰 범위 밖)로 집계되었습니다.
+  `TRUST_PROXY=true`·`*`·`2`·`0.0.0.0/0`으로 API를 실행하면 시작 시 오류로 종료됨을 확인했습니다.
+  API 컨테이너를 일시 정지한 상태에서 웹 `/api/v1/books`는 30.0초 후 504 `{"error":"Upstream timeout"}`, 재개 후 200이었습니다.
+  웹 경유 정상 로그인 1회 200·세션 200·`/@ua81102`·책 소개·`/dashboard/books`·`/search` SSR 200(쿠키 전달 포함),
+  CSRF 없는 로그아웃 403, 잘못된 Origin 403, 로그아웃 204 후 세션 401을 확인했습니다.
+  호스트에서 `nuxt dev`와 운영 빌드(`.output`)를 echo 서버에 연결해, 두 모드 모두 위조 헤더가 제거되고 실제 연결 주소만
+  `X-Forwarded-For`로 전달되며(운영 빌드의 SSR 내부 호출은 XFF 없음) 시간 제한 초과 시 504가 반환됨을 확인했습니다.
+  한 클라이언트가 실제로 429를 받은 상태에서 다른 클라이언트가 로그인되는지는 실제 스택에서 재현하지 않았습니다
+  (카운터 소모를 피함; 키 분리는 단위 테스트와 위 Redis 키로 확인). 실행 가능한 브라우저가 없어 브라우저 검증은 하지 않았습니다.
+
 ## 남은 결정과 주의 사항
 
 - 사용자당 책 개수 제한, 이미지 첨부, 신고·운영자 대응 범위, 계정(이메일) 기준 로그인 제한은 미결입니다.
 - 설계안은 Notion [WikiDocs형 블로그 플랫폼 설계안](https://app.notion.com/p/WikiDocs-41a2d703a2f881a7985eff5af6845fb1?source=copy_link)이며,
   2026-11-18에 구현 현황과 설계 대비 변경점(카테고리 단일 테이블, 분류 전용 API, URL 등)을 반영했습니다.
-- **요청 제한 결함 (미수정):** API에 `trust proxy` 설정이 없어 웹 프록시를 거친 가입·로그인이 모두
-  웹 컨테이너 IP 하나(`auth-rate:login:<웹 IP>`)로 집계됩니다. 전체 사용자 합산 15분 20회를 넘으면 모든 사용자의
-  로그인이 15분간 막히고, 실패 로그인으로 전체 로그인을 막을 수 있습니다. 신뢰할 프록시 범위와
-  `X-Forwarded-For` 전달 정책을 정해 운영 체크포인트에서 수정합니다. 웹 프록시에는 요청 시간 제한도 없습니다.
+- **요청 제한 결함 (수정, 2026-11-18 운영 1):** 웹 프록시가 클라이언트 IP 헤더를 버리고 자신이 본 연결 주소로
+  `X-Forwarded-For`를 다시 쓰며, API는 `TRUST_PROXY`(Compose: 웹 컨테이너 고정 주소)만 신뢰해 클라이언트별로 집계합니다.
+  웹 프록시 시간 제한(30초, 504)도 추가했습니다. 남은 주의: 로컬 개발에서는 호스트의 모든 요청이 Docker 게이트웨이
+  주소 하나로 집계됩니다. 웹 앞에 리버스 프록시·CDN을 두면 웹이 첫 hop이 아니므로 운영 배포 체크포인트에서
+  신뢰 체인을 다시 설계해야 합니다. 운영 빌드의 SSR 내부 API 호출은 웹 서버 주소로 집계됩니다(요청 제한 대상 아님).
+  같은 호스트에서 Compose 프로젝트를 여럿 띄우면 `.env`의 `WEB_API_SUBNET`·`WEB_PROXY_IP`를 서로 다르게 둬야 합니다.
 - 현재 Compose 설정은 개발용입니다. 운영용 HTTPS, 프록시 및 요청 제한 정책은 별도 설계가 필요합니다.

@@ -6,8 +6,13 @@ services:
     command: pnpm --filter @wikiblog/web dev --host 0.0.0.0
     environment:
       API_PROXY_TARGET: http://api:4000
+      NUXT_API_PROXY_TIMEOUT_MS: ${NUXT_API_PROXY_TIMEOUT_MS:-30000}
     ports:
       - "127.0.0.1:3000:3000"
+    networks:
+      # 웹은 API와 전용 네트워크에서 고정 주소로만 통신한다. API는 이 주소만 프록시로 신뢰한다(TRUST_PROXY).
+      web-api:
+        ipv4_address: ${WEB_PROXY_IP:-10.231.0.6}
     volumes:
       - ./apps/web/app:/app/apps/web/app
     depends_on:
@@ -29,8 +34,13 @@ services:
       REDIS_URL: redis://redis:6379
       APP_ORIGIN: http://localhost:3000
       COOKIE_SECURE: "false"
+      # 웹 컨테이너 주소 하나만 신뢰한다. 다른 주소에서 온 X-Forwarded-For는 무시된다.
+      TRUST_PROXY: ${WEB_PROXY_IP:-10.231.0.6}
     ports:
       - "127.0.0.1:4000:4000"
+    networks:
+      - default
+      - web-api
     volumes:
       - ./apps/api/src:/app/apps/api/src
       - ./apps/api/migrations:/app/apps/api/migrations
@@ -69,6 +79,15 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+networks:
+  default:
+  web-api:
+    ipam:
+      config:
+        # 같은 호스트에서 다른 Compose 프로젝트(예: worktree)와 함께 띄우면 .env에서 겹치지 않는 값으로 바꾼다.
+        # WEB_PROXY_IP는 이 대역의 마지막 주소로 둔다. API는 앞쪽 주소를 자동으로 받으므로 충돌하지 않는다.
+        - subnet: ${WEB_API_SUBNET:-10.231.0.0/29}
 
 volumes:
   mysql-data:

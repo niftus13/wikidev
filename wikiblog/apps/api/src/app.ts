@@ -28,6 +28,8 @@ import { ClassificationService } from './services/classifications.ts';
 export function createApp(pool: Pool, redis: RedisClient, config: SecurityConfig): Application {
   const app = express();
   app.disable('x-powered-by');
+  // 설정된 프록시에서 온 연결만 X-Forwarded-For를 따른다. 미설정이면 직전 연결 주소를 쓴다.
+  if (config.trustProxy) app.set('trust proxy', config.trustProxy);
   app.use('/api', (_request, response, next) => {
     response.set('Cache-Control', 'no-store');
     next();
