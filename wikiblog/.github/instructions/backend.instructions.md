@@ -1,6 +1,12 @@
 ---
 description: "Express API, 인증, 사용자 공간, DB 및 백엔드 공유 코드를 변경할 때 적용한다."
 applyTo: "apps/api/**,libs/entities/**,libs/dto/**,libs/shared/**,libs/types/**"
+paths:
+  - "apps/api/**"
+  - "libs/entities/**"
+  - "libs/dto/**"
+  - "libs/shared/**"
+  - "libs/types/**"
 ---
 
 # 백엔드 지침

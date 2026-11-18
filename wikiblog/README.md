@@ -377,6 +377,10 @@ docs/                 # API·데이터·운영 설계 문서 예정
 `.github/agents/`에는 백엔드·프론트엔드 구현자와 읽기 전용 리뷰어를 정의했습니다.
 `AGENTS.md`는 프로젝트 지침의 위치를 안내합니다.
 
+Claude Code에서는 `wikiblog` 폴더에서 실행하면 `CLAUDE.md`가 공통 지침을 import하고,
+`.claude/rules`·`.claude/skills`가 `.github` 원본을 심볼릭 링크로 참조합니다.
+서브에이전트는 도구 형식이 달라 `.claude/agents`에 별도로 정의하며 본문은 `.github/agents`와 함께 갱신합니다.
+
 가이드: [하네스 엔지니어링 실전 가이드](https://app.notion.com/p/Skills-Agents-4132d703a2f881a58352ea9faa6f639f?source=copy_link).
 VS Code의 **Chat: Open Customizations**에서 지침·스킬·에이전트의 검색 여부를 확인하고,
 새 대화에서 실제 작업과 리뷰를 시도해 적용 여부와 도구 사용을 확인합니다.

@@ -1,6 +1,8 @@
 ---
 description: "Nuxt와 Vue 화면, 상태 및 API 연동을 변경할 때 적용한다."
 applyTo: "apps/web/**"
+paths:
+  - "apps/web/**"
 ---
 
 # 프론트엔드 지침

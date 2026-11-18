@@ -1,6 +1,10 @@
 ---
 description: "테스트를 작성하거나 수정할 때 적용한다."
-applyTo: "**/*.{test,spec}.{ts,tsx,js,jsx},tests/**"
+applyTo: "**/*.{test,spec}.{ts,tsx,js,jsx},apps/*/test/**,tests/**"
+paths:
+  - "**/*.{test,spec}.{ts,tsx,js,jsx}"
+  - "apps/*/test/**"
+  - "tests/**"
 ---
 
 # 테스트 지침
