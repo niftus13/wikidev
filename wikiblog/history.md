@@ -9,7 +9,7 @@
 사용자 공간 화면(`/@{handle}`, 내 공간 소개 편집)을 구현했습니다.**
 작성자 화면과 사용자 공간 화면은 실제 API 흐름(curl)·SSR 응답과 웹 타입 검사·빌드·단위 테스트로 확인했으나,
 작업 환경에 실행 가능한 브라우저가 없어 실제 브라우저 검증은 남아 있습니다.
-운영은 프록시 신뢰 경계와 요청 제한(운영 1), CI 워크플로(운영 2, GitHub 실제 실행 확인 전)를 구현했고 E2E·운영 배포·백업은 남아 있습니다.
+운영은 프록시 신뢰 경계와 요청 제한(운영 1), CI 워크플로(운영 2, GitHub Actions 실행 통과)를 구현했고 E2E·운영 배포·백업은 남아 있습니다.
 사용자 공간 화면 요구사항은 [docs/checkpoints/user-space-ui.md](docs/checkpoints/user-space-ui.md)에 있습니다.
 완료한 작성자 화면 요구사항은 [docs/checkpoints/author-management-ui.md](docs/checkpoints/author-management-ui.md)에 있습니다.
 
@@ -211,7 +211,7 @@
 | 공개 분류 | 구현 완료 | 카테고리·태그 API와 공개 필터; 플랫폼 관리·시드 보류 |
 | 작성자 화면 | 구현 완료 (브라우저 검증 남음) | 인증·책·페이지 편집·발행, 목차 이동·이력 복원, 분류 관리 UI; 실제 API 흐름·타입 검사·빌드 확인, 실제 브라우저·키보드·모바일 확인 필요 |
 | 사용자 공간 화면 | 구현 완료 (브라우저 검증 남음) | 공간 책 목록 API, `/@{handle}` 공개 공간, 내 공간 소개 편집, `@handle` 링크; SSR 응답·실제 API·타입 검사·빌드 확인, 실제 브라우저·키보드·모바일 확인 필요 ([요구사항](docs/checkpoints/user-space-ui.md)) |
-| 운영 | 진행 중 (운영 1·2 구현 완료, 운영 2는 GitHub 실행 확인 남음) | 운영 1: 프록시 신뢰 경계와 요청 제한 구현·검증 ([요구사항](docs/checkpoints/ops-proxy-rate-limit.md)); 운영 2: CI 워크플로 구현, 깨끗한 컨테이너에서 로컬 재현만 확인 ([요구사항](docs/checkpoints/ops-ci.md)); 남은 작업: GitHub 첫 실행 확인, E2E, 운영 배포(리버스 프록시·CDN 신뢰 체인 재설계, HTTPS, 캐시 정책 — [운영 배포 체크리스트](docs/checkpoints/ops-deploy-checklist.md)), 백업·모니터링 |
+| 운영 | 진행 중 (운영 1·2 완료) | 운영 1: 프록시 신뢰 경계와 요청 제한 구현·검증 ([요구사항](docs/checkpoints/ops-proxy-rate-limit.md)); 운영 2: CI 워크플로 구현, 로컬 재현과 GitHub Actions 첫 실행(PR) 통과 ([요구사항](docs/checkpoints/ops-ci.md)); 남은 작업: E2E, 운영 배포(리버스 프록시·CDN 신뢰 체인 재설계, HTTPS, 캐시 정책 — [운영 배포 체크리스트](docs/checkpoints/ops-deploy-checklist.md)), 백업·모니터링 |
 
 ## 다음 구현에 적용할 결정 사항
 
@@ -297,7 +297,9 @@
   한 클라이언트가 실제로 429를 받은 상태에서 다른 클라이언트가 로그인되는지는 실제 스택에서 재현하지 않았습니다
   (카운터 소모를 피함; 키 분리는 단위 테스트와 위 Redis 키로 확인). 실행 가능한 브라우저가 없어 브라우저 검증은 하지 않았습니다.
 
-- 운영 2 CI 체크포인트 (2026-11-18, **로컬 재현만**, GitHub 실제 실행 없음): `actionlint` 1.7.12(shellcheck 포함) 오류 0개.
+- 운영 2 CI GitHub 실행 (2026-11-18): 브랜치 `claude/read-directory-6241e5`를 push하고 PR을 열어 첫 실행에서
+  정적 검사·단위 job과 통합 job이 모두 성공했습니다(사용자가 PR Checks 화면에서 확인).
+- 운영 2 CI 체크포인트 (2026-11-18, 로컬 재현): `actionlint` 1.7.12(shellcheck 포함) 오류 0개.
   깨끗한 `node:24`(v24.22.3) 컨테이너에 추적 파일만 복사해(호스트 `node_modules` 미사용) 워크플로 step을 YAML에서 읽어 같은 순서로 실행했습니다.
   정적 검사·단위 job 통과: `pnpm install --frozen-lockfile`, libs 빌드, API·웹 타입 검사, API 빌드, API 테스트 20개(통과 13, 건너뜀 7 — 통합),
   웹 테스트 18개 통과, 웹 빌드. 통합 job은 고유 이름의 임시 네트워크·Redis 7.4·MySQL 8.4 컨테이너(호스트 포트 공개 없음)로 재현해
