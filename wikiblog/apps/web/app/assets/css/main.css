@@ -38,8 +38,8 @@
   --muted: #617185;
   --line: #e2e8ef;
   --input: #ccd7e4;
-  --accent: #2866d7;
-  --accent-hover: #1f55b7;
+  --accent: #2663ce; /* 브랜드 색: 헤더 마크·파비콘·theme-color와 같은 값 */
+  --accent-hover: #1d50a8;
   --accent-soft: #f0f6ff;
   --soft: #f5f8fc;
   --danger: #a52e32;
@@ -74,7 +74,7 @@ h1, h2, h3, p { margin-top: 0; }
 .site-header { border-bottom: 1px solid var(--line); background: #fff; }
 .header-inner { width: min(1280px, calc(100% - 48px)); min-height: 68px; margin: 0 auto; display: flex; align-items: center; gap: 16px; }
 .brand { display: inline-flex; gap: 10px; align-items: center; font-weight: 750; font-size: 19px; letter-spacing: -.04em; white-space: nowrap; }
-.brand-mark { display: grid; place-items: center; width: 30px; height: 30px; background: #2663ce; color: #fff; border-radius: 8px; font-size: 18px; }
+.brand-mark { display: grid; place-items: center; width: 30px; height: 30px; background: var(--accent); color: #fff; border-radius: 8px; font-size: 18px; }
 .header-nav { display: flex; gap: 26px; margin-left: 22px; font-size: 14px; font-weight: 600; color: #4a5a6e; }
 .header-nav a:hover, .text-link:hover { color: var(--accent); }
 .header-search { margin-left: auto; display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 6px 4px 12px; border: 1px solid #dfe6ee; border-radius: var(--control-radius); color: #8a9aab; background: #f8fafc; }

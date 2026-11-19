@@ -82,7 +82,7 @@
 | --- | --- |
 | C-1 | `deploy/nginx/wikiblog.conf`(호스트 nginx용)를 작성한다. |
 | | 443(TLS, Let's Encrypt)과 80(HTTPS 리다이렉트, 인증서 갱신용 `/.well-known/acme-challenge/` 경로)을 둔다. |
-| | `proxy_pass http://127.0.0.1:3000`, 요청 본문 상한(API 16KB보다 여유 있게), 시간 제한(웹 30초 < nginx)을 설정한다. |
+| | `proxy_pass http://127.0.0.1:3000`, 요청 본문 상한(API 16KB보다 여유 있게. 이미지 업로드 경로 `/api/v1/me/images`는 2MB 이상 — [mvp-content.md](mvp-content.md) B-8), 시간 제한(웹 30초 < nginx)을 설정한다. |
 | C-2 | **클라이언트 IP 확정**: nginx가 첫 hop이므로 `$remote_addr`가 곧 클라이언트 주소이다. upstream에는 `proxy_set_header X-Forwarded-For $remote_addr;`로 **덮어쓴다**(`$proxy_add_x_forwarded_for` 금지). 클라이언트가 보낸 `X-Real-IP`, `Forwarded`는 지운다. |
 | C-3 | `Host`, `X-Forwarded-Proto https`, `Origin`, 쿠키를 그대로 전달한다. API의 Origin 검사가 `APP_ORIGIN`(https)과 맞는지 확인한다. |
 | C-4 | 캐시(8절 Q6): `/_nuxt/*`(해시 파일명)에만 긴 `Cache-Control`(`public, max-age=31536000, immutable`)을 붙인다. 그 밖의 경로는 nginx가 캐시하지 않고 캐시 헤더도 추가하지 않는다. API는 이미 `no-store`를 보낸다. |
