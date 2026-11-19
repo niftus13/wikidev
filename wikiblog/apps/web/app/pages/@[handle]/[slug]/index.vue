@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { PublicBookDto, PublicClassificationDto, TocEntryDto } from '@wikiblog/dto';
 import { pagePath, spacePath } from '~/utils/paths';
+import { metaDescription } from '~/utils/meta';
 
 const route = useRoute();
 const requestFetch = useRequestFetch();
@@ -19,7 +20,13 @@ if (import.meta.server && error.value) {
   const event = useRequestEvent();
   if (event) event.node.res.statusCode = error.value.statusCode === 404 ? 404 : 503;
 }
-useSeoMeta({ title: () => data.value ? `${data.value.book.title} — WikiBlog` : '책 — WikiBlog' });
+usePageMeta({
+  title: () => data.value?.book.title ?? '책',
+  description: () => data.value
+    ? metaDescription(data.value.book.description, `@${data.value.book.handle}의 책 「${data.value.book.title}」을 읽어보세요.`)
+    : undefined,
+  noindex: () => Boolean(error.value),
+});
 </script>
 
 <template>

@@ -495,7 +495,7 @@ DTO에 포함하지 않습니다.
 라이브러리 수정 후에는 다시 빌드해야 하며 Docker에서는 이미지를 다시 빌드해야 합니다.
 전체 빌드는 `pnpm build`, API 타입 검사는 `pnpm typecheck`,
 단위 테스트는 `pnpm --filter @wikiblog/api test`입니다.
-웹 타입 검사는 `pnpm --filter @wikiblog/web typecheck`, Markdown·목차·카테고리 트리·검색 쿼리
+웹 타입 검사는 `pnpm --filter @wikiblog/web typecheck`, Markdown·목차·카테고리 트리·검색 쿼리·페이지 메타
 단위 테스트는 `pnpm --filter @wikiblog/web test`입니다.
 
 ### 웹 화면 스타일
@@ -507,6 +507,29 @@ DTO에 포함하지 않습니다.
   기존 `.container`와 이름이 겹치는 Tailwind 유틸리티는 만들지 않습니다.
 - 아이콘은 **`@lucide/vue`**(Lucide의 Vue 패키지, 이전 이름 `lucide-vue-next`)를 컴포넌트로 가져옵니다. 외부 네트워크가 필요 없습니다.
 - 현재 Tailwind로 작성한 화면은 헤더 계정 영역, 로그인·회원가입, 검색 화면입니다. 나머지는 기존 클래스를 씁니다.
+
+### 웹 head·파비콘·외부 CSS/JS
+
+- **head 기본값**은 `apps/web/nuxt.config.ts`의 `app.head`(`lang="ko"`, charset, viewport, 기본 title·description, `theme-color`, 파비콘·manifest link)에 있습니다.
+  **제목 규칙**은 `app.vue`의 `titleTemplate` 한 곳에서 정합니다: `화면 제목 — WikiBlog`, 제목이 없으면 `WikiBlog — 책으로 만나는 지식`.
+- 화면별 메타는 **`usePageMeta({ title, description, noindex, type })`**(`app/composables/usePageMeta.ts`)로만 넣습니다. 제목에 `— WikiBlog`를 붙이지 않습니다.
+  description은 일반 텍스트만 받아 공백을 정리하고 160자(코드 포인트)로 자르며, 비면 사이트 기본 설명을 씁니다. `og:title`·`og:description`·`og:type`·`og:site_name`·`twitter:card`가 함께 들어갑니다.
+  관리·인증 화면과 오류 상태(공간·책·페이지)는 `noindex`입니다. 책은 소개, 페이지는 본문 앞부분(Markdown에서 글자만 추출, `markdownPlainText`), 공간은 소개를 description으로 씁니다.
+  순수 규칙(`formatTitle`·`joinTitle`·`metaDescription`)은 `app/utils/meta.ts`에 있고 `pnpm --filter @wikiblog/web test`로 검사합니다.
+  `og:url`·`og:image`는 사이트 절대 주소 설정이 없어 아직 넣지 않습니다.
+- **파비콘**: 원본은 헤더 브랜드 마크와 같은 디자인의 `apps/web/public/favicon.svg`(글꼴 없이 path로 그린 W)입니다.
+  `favicon.ico`(16·32·48), `apple-touch-icon.png`(180, 꽉 찬 사각형), `icon-192.png`·`icon-512.png`(`site.webmanifest`)는 생성물이며,
+  SVG를 바꾸면 `apps/web`에서 다음으로 다시 만듭니다(공식 Playwright 이미지의 Chromium으로 렌더링, npm 설치 불필요).
+  ```bash
+  docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/work" -w /work \
+    mcr.microsoft.com/playwright:v1.65.1-noble node scripts/generate-icons.mjs
+  ```
+- **CSS·JS는 외부 파일로 head에 넣습니다.** `features.inlineStyles: false`로 운영 빌드의 CSS는 `<link rel="stylesheet" href="/_nuxt/entry.*.css">`이고,
+  JS는 `<script type="module" src="/_nuxt/*.js">`와 `modulepreload`입니다. 엔트리 import map 인라인 스크립트도 끕니다(`experimental.entryImportMap: false`).
+  앱 코드에 인라인 `style=""`·`<style>` 블록·`innerHTML` 스크립트를 쓰지 않습니다(깊이 들여쓰기는 `.depth-0`~`.depth-6` 클래스).
+  Nuxt가 넣는 인라인은 두 개만 남습니다: SSR 데이터 `<script type="application/json" id="__NUXT_DATA__">`(실행되지 않는 데이터)와
+  `window.__NUXT__.config` 설정 스크립트(빌드마다 내용이 고정, Nuxt 4.6에서 끌 수 있는 설정 없음). `nuxt dev`는 Vite가 CSS를 JS로 주입하므로 확인은 운영 빌드로 합니다.
+- 운영 빌드에서 `@lucide/vue`는 `build.transpile`로 번들에 포함합니다. 외부 CJS로 두면 별도 vue 인스턴스를 불러 SSR이 500으로 실패합니다.
 Docker 실행 중 실연동 테스트는
 `docker compose exec -T -e INTEGRATION_TESTS=1 api pnpm --filter @wikiblog/api test`로 실행합니다.
 

@@ -72,7 +72,10 @@ function clearSearch() {
 onMounted(() => { if (!query.value) searchField.value?.focus(); });
 onBeforeUnmount(cancelScheduled);
 
-useSeoMeta({ title: () => query.value ? `"${query.value}" 검색 — WikiBlog` : '검색 — WikiBlog', description: '공개된 책과 페이지를 검색하세요.' });
+usePageMeta({
+  title: () => query.value ? `"${query.value}" 검색` : '검색',
+  description: () => query.value ? `WikiBlog에서 "${query.value}"(으)로 찾은 공개 책과 페이지입니다.` : '공개된 책과 페이지를 제목·본문·카테고리·태그로 검색하세요.',
+});
 </script>
 
 <template>

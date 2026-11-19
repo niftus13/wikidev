@@ -4,7 +4,7 @@ import { apiErrorStatus } from '~/utils/apiError';
 import { moveSiblings, possibleParents } from '~/utils/toc';
 
 definePageMeta({ key: (route) => route.path });
-useSeoMeta({ title: '페이지 관리 — WikiBlog', robots: 'noindex' });
+usePageMeta({ title: '페이지 관리', noindex: true });
 const route = useRoute();
 const bookId = String(route.params.bookId);
 const session = ref<SessionResponse | null>(null);

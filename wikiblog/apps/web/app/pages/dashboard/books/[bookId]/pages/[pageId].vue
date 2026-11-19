@@ -5,7 +5,7 @@ import { renderMarkdown } from '~/utils/markdown';
 import { pagePath } from '~/utils/paths';
 
 definePageMeta({ key: (route) => route.path });
-useSeoMeta({ title: '페이지 편집 — WikiBlog', robots: 'noindex' });
+usePageMeta({ title: '페이지 편집', noindex: true });
 const route = useRoute();
 const bookId = String(route.params.bookId);
 const pageId = String(route.params.pageId);

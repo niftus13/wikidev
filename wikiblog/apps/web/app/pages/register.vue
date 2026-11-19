@@ -1,5 +1,5 @@
 <script setup lang="ts">
-useSeoMeta({ title: '회원가입 — WikiBlog', robots: 'noindex' });
+usePageMeta({ title: '회원가입', noindex: true });
 </script>
 
 <template><AuthForm mode="register" /></template>

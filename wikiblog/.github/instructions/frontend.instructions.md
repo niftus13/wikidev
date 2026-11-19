@@ -16,3 +16,5 @@ paths:
 - 관련 정상·실패 흐름을 테스트하고 이용 가능한 타입 검사와 브라우저 검증을 수행한다. 브라우저를 사용할 수 없으면 명시한다.
 - 스타일은 `app/assets/css/main.css`의 기존 클래스와 Tailwind v4 유틸리티를 함께 쓴다. Tailwind는 preflight 없이 theme·utilities 레이어만 가져오고, 색·반경·컨트롤 높이는 main.css 변수를 `@theme inline`으로 연결한 토큰(`text-accent`, `border-line`, `rounded-control`, `h-control` 등)을 쓴다. 버튼은 `.button` 계열을 재사용한다.
 - 아이콘은 `@lucide/vue`(구 `lucide-vue-next`) 컴포넌트를 import한다. 장식 아이콘은 `aria-hidden="true"`, 아이콘만 있는 버튼에는 `aria-label`을 둔다.
+- 화면의 title·description은 `usePageMeta`로만 넣는다(제목에 `— WikiBlog`를 붙이지 않고, description은 HTML이 아닌 텍스트). `useSeoMeta`·`useHead`를 페이지에서 직접 쓰지 않는다.
+- 인라인 `style=""`·`:style`, 컴포넌트 `<style>` 블록, `useHead`의 `innerHTML` 스크립트를 쓰지 않는다. 스타일은 main.css 클래스·Tailwind 유틸리티로, 스크립트는 모듈 코드로 둔다(외부 CSS/JS 정책·향후 CSP).

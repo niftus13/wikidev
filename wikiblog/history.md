@@ -228,6 +228,23 @@
   후속 정리(2026-11-19): 내 책 관리의 중복 로그아웃 행(헤더 계정 메뉴와 중복)을 제거했고, 헤더 계정 메뉴의 펼침 아이콘이
   좁은 공간에서 찌그러지지 않도록 크기를 고정(`shrink-0`)했습니다. 웹 타입 검사와 테스트 23개를 다시 통과했고, 이 두 수정은 브라우저로 다시 찍어 보지 않았습니다.
 
+### 2026-11-19: 파비콘·head 메타 주입·CSS/JS 외부화
+
+- 파비콘: 헤더 브랜드 마크(파란 둥근 사각형 `#2663ce` + 흰 W)와 같은 `public/favicon.svg`를 path로 그렸고,
+  `favicon.ico`(16·32·48)·`apple-touch-icon.png`(180)·`icon-192/512.png`·`site.webmanifest`를 추가했습니다.
+  PNG·ICO는 `apps/web/scripts/generate-icons.mjs`가 공식 Playwright Docker 이미지의 Chromium headless shell로 만듭니다(재생성 방법은 README).
+- head: `nuxt.config.ts`의 `app.head`에 `lang="ko"`·charset·viewport·기본 title/description·`theme-color`·아이콘 link를 두고,
+  `app.vue`의 함수형 `titleTemplate`으로 `화면 제목 — WikiBlog`(제목 없으면 사이트 기본 제목) 규칙을 한 곳에서 정했습니다.
+  모든 페이지의 `useSeoMeta`를 공통 composable `usePageMeta`로 바꾸고 제목의 `— WikiBlog` 중복을 없앴습니다.
+  og·twitter 태그를 함께 넣고, 책(소개)·페이지(본문 앞부분 텍스트)·공간(소개)·검색(검색어) description을 데이터로 만듭니다.
+  공간에만 있던 오류 상태 `noindex`를 책·페이지에도 적용했습니다. 순수 로직은 `utils/meta.ts`·`markdownPlainText`로 분리해 단위 테스트했습니다.
+- 외부화: `features.inlineStyles: false`로 SSR HTML의 인라인 `<style>`을 없애고 외부 `/_nuxt/entry.*.css` link만 남겼으며,
+  `experimental.entryImportMap: false`로 인라인 import map을 없앴습니다. 목차·카테고리 깊이의 인라인 `style`을 `.depth-N` 클래스로 바꿨습니다.
+  남은 인라인은 Nuxt의 `__NUXT_DATA__`(JSON 데이터)와 `window.__NUXT__.config` 스크립트입니다(끌 설정 없음, README 참고).
+- 함께 고친 결함: 운영 빌드(`node .output/server/index.mjs`)에서 `@lucide/vue`가 외부 CJS로 남아 다른 vue 인스턴스를 불러
+  아이콘이 있는 모든 화면 SSR이 500이던 문제를 `build.transpile`로 고쳤습니다(개발 서버·Docker 개발 스택은 영향 없음, CI는 빌드만 해 발견되지 않음).
+- 남은 일: `og:url`·`og:image`(사이트 절대 주소 설정 필요), CSP 헤더 도입(남은 인라인 스크립트의 해시 또는 nonce 필요).
+
 ## 마일스톤
 
 | 단계 | 상태 | 진행 내용과 남은 작업 |
@@ -348,6 +365,20 @@
   로그인 3회(실패 1·성공 2), 가입 요청 1회(중복)만 사용했습니다. 관리 화면에서 헤더 로그아웃(홈 이동 후 로그아웃) 경로는 검증 스크립트 선택자 오류로
   브라우저에서 끝까지 확인하지 못했고, 그 세션은 서버에 남아 만료를 기다립니다. 컨테이너에 한글 굵은 글꼴이 없어 스크린샷의 제목 굵기는 실제와 다를 수 있습니다.
   API 통합 테스트는 백엔드 변경이 없어 다시 실행하지 않았습니다.
+
+- 파비콘·head 메타·CSS/JS 외부화 체크포인트 (2026-11-19): `pnpm build:libs`, 웹 타입 검사·빌드 통과, 웹 단위 테스트 27개 통과
+  (제목 템플릿·제목 조합·description 정리/자르기/대체값·Markdown 텍스트 추출 4개 추가). 의존성 추가 없음(`pnpm install` 미실행).
+  변경 전 운영 빌드를 호스트 3200 포트에서 실행하자 홈 SSR이 500(`useLucideProps` undefined)이었고, 수정 후 200입니다.
+  운영 빌드 서버(3200, 메인 스택 API 4000에 GET만)에서 curl로 15개 경로(홈·검색·검색어·로그인·가입·공간·대문자 공간 301·책·페이지·없는 책 404·관리 5개)의
+  head를 확인했습니다: 템플릿 적용 제목(중복 없음), description·og·twitter 태그, 관리·인증·오류 화면 `noindex`, 아이콘 link 4개,
+  `<link rel="stylesheet" href="/_nuxt/entry.*.css">` 1개, 인라인 `<style>`·`style` 속성 0개, 스크립트는 외부 모듈 1개와 Nuxt 인라인 2개(설정·JSON 데이터).
+  검색어에 `</title><script>`를 넣어도 title·description 값은 이스케이프됨을 확인했습니다. 아이콘 6개 파일은 200과 올바른 Content-Type
+  (`image/svg+xml`, `image/vnd.microsoft.icon`, `image/png`, `application/manifest+json`)으로 서빙됩니다.
+  Playwright Docker 이미지(1.65.1, Chromium)로 운영 빌드 8개 화면을 열어 51개 확인 통과: 외부 CSS만 로드·스타일 적용(브랜드 마크 배경색),
+  하이드레이션 후 `style` 속성 0개, JS를 끈 상태에서도 첫 화면 스타일 적용(FOUC 없음), 목차 들여쓰기 클래스 적용, 아이콘 디코드(ICO·SVG·PNG),
+  Vue 경고·페이지 오류 없음(콘솔 오류는 비로그인 세션 조회 401과 없는 책 문서 404의 리소스 로그뿐). 로그인 요청은 하지 않았습니다.
+  헤드리스 브라우저는 탭을 그리지 않아 실제 탭 아이콘 모습과 iOS 홈 화면 아이콘은 확인하지 못했고, 로그인이 필요한 카테고리 관리의 깊이 들여쓰기와
+  깊이 1 이상의 목차는 데이터가 없어 브라우저로 보지 못했습니다. `nuxt dev`(3201)에서 페이지 SSR 200과 새 제목·description을 확인했습니다.
 
 ## 남은 결정과 주의 사항
 

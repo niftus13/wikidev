@@ -144,7 +144,7 @@ defineExpose({ hasInput, busy });
       </form>
       <p v-if="!tree.length" class="state">아직 카테고리가 없습니다.</p>
       <ul v-else class="managed-books category-list">
-        <li v-for="item in tree" :key="item.id" :style="{ '--depth': item.depth }">
+        <li v-for="item in tree" :key="item.id" :class="`depth-${Math.min(item.depth, 6)}`">
           <div class="managed-book-content category-item">
             <p class="page-depth">깊이 {{ item.depth + 1 }}<template v-if="item.parentId"> · 상위: {{ nameOf(item.parentId) }}</template></p>
             <h3>{{ item.name }}</h3>

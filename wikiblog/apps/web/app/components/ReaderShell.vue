@@ -26,9 +26,8 @@ const depths = computed(() => {
           <li v-for="entry in toc" :key="entry.id">
             <NuxtLink
               :to="pagePath(book.handle, book.slug, entry.id)"
-              :class="{ active: entry.id === currentId }"
               :aria-current="entry.id === currentId ? 'page' : undefined"
-              :style="{ paddingLeft: `${12 + Math.min(depths.get(entry.id) ?? 0, 6) * 16}px` }"
+              :class="[`depth-${Math.min(depths.get(entry.id) ?? 0, 6)}`, { active: entry.id === currentId }]"
             >{{ entry.title }}</NuxtLink>
           </li>
         </ul>

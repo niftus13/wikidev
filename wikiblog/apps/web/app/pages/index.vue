@@ -2,13 +2,15 @@
 import { ArrowUpRight, BookOpen } from '@lucide/vue';
 import type { PublicBookDto } from '@wikiblog/dto';
 import { bookPath, spacePath } from '~/utils/paths';
+import { SITE_DESCRIPTION } from '~/utils/meta';
 
 const { data: books, status, error, refresh } = await useFetch<PublicBookDto[]>('/api/v1/books');
 if (import.meta.server && error.value) {
   const event = useRequestEvent();
   if (event) event.node.res.statusCode = 503;
 }
-useSeoMeta({ title: 'WikiBlog — 책으로 만나는 지식', description: '공개된 책과 문서를 읽어보세요.' });
+// 제목 없음: titleTemplate이 사이트 기본 제목(WikiBlog — 책으로 만나는 지식)을 쓴다.
+usePageMeta({ description: SITE_DESCRIPTION });
 </script>
 
 <template>

@@ -3,7 +3,7 @@ import type { BookDto, SessionResponse } from '@wikiblog/dto';
 import { apiErrorStatus } from '~/utils/apiError';
 
 definePageMeta({ key: (route) => route.path });
-useSeoMeta({ title: '페이지 카테고리 — WikiBlog', robots: 'noindex' });
+usePageMeta({ title: '페이지 카테고리', noindex: true });
 const route = useRoute();
 const bookId = String(route.params.bookId);
 const session = ref<SessionResponse | null>(null);

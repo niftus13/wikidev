@@ -2,7 +2,7 @@
 import type { SessionResponse, TagDto } from '@wikiblog/dto';
 import { apiErrorStatus } from '~/utils/apiError';
 
-useSeoMeta({ title: '분류 관리 — WikiBlog', robots: 'noindex' });
+usePageMeta({ title: '분류 관리', noindex: true });
 const session = ref<SessionResponse | null>(null);
 const loading = ref(true);
 const loadError = ref('');

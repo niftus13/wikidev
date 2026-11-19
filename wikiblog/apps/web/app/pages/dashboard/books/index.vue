@@ -4,7 +4,7 @@ import { apiErrorStatus } from '~/utils/apiError';
 import { bookPath, spacePath } from '~/utils/paths';
 import { characterCount, SPACE_DESCRIPTION_LIMIT } from '~/utils/space';
 
-useSeoMeta({ title: '내 책 관리 — WikiBlog', robots: 'noindex' });
+usePageMeta({ title: '내 책 관리', noindex: true });
 const currentUser = useCurrentUser();
 const session = ref<SessionResponse | null>(null);
 const books = ref<BookDto[]>([]);

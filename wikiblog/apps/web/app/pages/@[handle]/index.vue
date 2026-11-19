@@ -3,7 +3,7 @@ import { ArrowUpRight, BookOpen } from '@lucide/vue';
 import type { PublicBookDto, SpaceDto } from '@wikiblog/dto';
 import { normalizeHandle } from '@wikiblog/shared';
 import { bookPath, spacePath } from '~/utils/paths';
-import { descriptionExcerpt } from '~/utils/space';
+import { metaDescription } from '~/utils/meta';
 
 definePageMeta({
   // 공간 API는 handle을 정규화하므로 같은 공간의 URL을 소문자 하나로 고정한다.
@@ -32,11 +32,12 @@ if (import.meta.server && error.value) {
   if (event) event.node.res.statusCode = error.value.statusCode === 404 ? 404 : 503;
 }
 const notFound = computed(() => error.value?.statusCode === 404);
-useSeoMeta({
-  title: () => data.value ? `@${data.value.space.handle} — WikiBlog` : '사용자 공간 — WikiBlog',
-  description: () => (data.value && descriptionExcerpt(data.value.space.description))
-    || (data.value ? `@${data.value.space.handle}의 공개 책을 읽어보세요.` : 'WikiBlog 사용자 공간'),
-  robots: () => error.value ? 'noindex' : undefined,
+usePageMeta({
+  title: () => data.value ? `@${data.value.space.handle}` : '사용자 공간',
+  description: () => data.value
+    ? metaDescription(data.value.space.description, `@${data.value.space.handle}의 공개 책을 읽어보세요.`)
+    : 'WikiBlog 사용자 공간',
+  noindex: () => Boolean(error.value),
 });
 
 // 소유자 링크는 편의 기능일 뿐이다. 서버 렌더링 HTML에 넣지 않고 브라우저에서 헤더와 같은 세션 상태로 비교한다.

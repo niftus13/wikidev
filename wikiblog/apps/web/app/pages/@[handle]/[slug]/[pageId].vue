@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { PublicBookDto, PublicClassificationDto, PublishedPageDto, TocEntryDto } from '@wikiblog/dto';
 import { bookPath, pagePath, spacePath } from '~/utils/paths';
-import { renderMarkdown } from '~/utils/markdown';
+import { markdownPlainText, renderMarkdown } from '~/utils/markdown';
+import { joinTitle, metaDescription } from '~/utils/meta';
 
 const route = useRoute();
 const requestFetch = useRequestFetch();
@@ -26,7 +27,15 @@ const rendered = computed(() => data.value ? renderMarkdown(data.value.page.body
 const pageIndex = computed(() => data.value?.toc.findIndex((entry) => entry.id === data.value?.page.id) ?? -1);
 const previous = computed(() => pageIndex.value > 0 ? data.value?.toc[pageIndex.value - 1] : undefined);
 const next = computed(() => pageIndex.value >= 0 ? data.value?.toc[pageIndex.value + 1] : undefined);
-useSeoMeta({ title: () => data.value ? `${data.value.page.title} — ${data.value.book.title} | WikiBlog` : '페이지 — WikiBlog' });
+usePageMeta({
+  title: () => data.value ? joinTitle(data.value.page.title, data.value.book.title) : '페이지',
+  // 본문 앞부분을 텍스트로만 쓴다(렌더링한 HTML이 아니라 Markdown 토큰의 글자).
+  description: () => data.value
+    ? metaDescription(markdownPlainText(data.value.page.body), `「${data.value.book.title}」의 페이지 「${data.value.page.title}」입니다.`)
+    : undefined,
+  noindex: () => Boolean(error.value),
+  type: 'article',
+});
 </script>
 
 <template>
