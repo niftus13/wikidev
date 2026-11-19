@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import type { PublicBookDto, SessionResponse, SpaceDto } from '@wikiblog/dto';
+import { ArrowUpRight, BookOpen } from '@lucide/vue';
+import type { PublicBookDto, SpaceDto } from '@wikiblog/dto';
 import { normalizeHandle } from '@wikiblog/shared';
 import { bookPath, spacePath } from '~/utils/paths';
 import { descriptionExcerpt } from '~/utils/space';
@@ -38,16 +39,10 @@ useSeoMeta({
   robots: () => error.value ? 'noindex' : undefined,
 });
 
-// 소유자 링크는 편의 기능일 뿐이다. 서버 렌더링 HTML에 넣지 않고 브라우저에서 세션을 비교한다.
-const viewerHandle = ref<string | null>(null);
-onMounted(async () => {
-  try {
-    viewerHandle.value = (await $fetch<SessionResponse>('/api/v1/auth/session')).space.handle;
-  } catch {
-    viewerHandle.value = null;
-  }
-});
-const isOwner = computed(() => !!data.value && viewerHandle.value === data.value.space.handle);
+// 소유자 링크는 편의 기능일 뿐이다. 서버 렌더링 HTML에 넣지 않고 브라우저에서 헤더와 같은 세션 상태로 비교한다.
+const currentUser = useCurrentUser();
+onMounted(() => { if (currentUser.status.value === 'unknown') currentUser.refresh(); });
+const isOwner = computed(() => !!data.value && currentUser.handle.value === data.value.space.handle);
 </script>
 
 <template>
@@ -82,12 +77,12 @@ const isOwner = computed(() => !!data.value && viewerHandle.value === data.value
         <p v-if="!data.books.length" class="state">아직 공개된 책이 없습니다.</p>
         <div v-else class="book-grid">
           <article v-for="book in data.books" :key="book.id" class="book-card">
-            <div class="book-icon" aria-hidden="true">▤</div>
+            <div class="book-icon" aria-hidden="true"><BookOpen class="size-5" /></div>
             <div class="book-card-content">
               <h3><NuxtLink class="card-link" :to="bookPath(book.handle, book.slug)">{{ book.title }}</NuxtLink></h3>
               <p>{{ book.description || '소개가 아직 작성되지 않았습니다.' }}</p>
             </div>
-            <span class="card-arrow" aria-hidden="true">↗</span>
+            <ArrowUpRight class="card-arrow size-4 shrink-0" aria-hidden="true" />
           </article>
         </div>
       </section>

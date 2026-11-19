@@ -1,4 +1,5 @@
 import type { IncomingMessage } from 'node:http';
+import tailwindcss from '@tailwindcss/vite';
 import { DEFAULT_API_PROXY_TIMEOUT_MS, resetForwardedFor } from './server/utils/apiProxy';
 
 // nuxt dev 전용: 개발 서버(첫 hop)가 Nitro 워커로 요청을 넘기기 전에 위조 가능한 전달 헤더를 지우고
@@ -14,6 +15,8 @@ export default defineNuxtConfig({
   compatibilityDate: '2026-01-01',
   devServer: { host: '0.0.0.0' },
   css: ['~/assets/css/main.css'],
+  // Tailwind v4는 theme·utilities 레이어만 쓴다(preflight 없음). 설정은 main.css의 @import·@theme에 있다.
+  vite: { plugins: [tailwindcss()] },
   runtimeConfig: {
     apiProxyTarget: process.env.API_PROXY_TARGET || 'http://localhost:4000',
     // NUXT_API_PROXY_TIMEOUT_MS로 바꿀 수 있다. 넘으면 /api 프록시가 504를 반환한다.

@@ -9,12 +9,15 @@
     "test": "node --test test/*.test.ts"
   },
   "dependencies": {
+    "@lucide/vue": "^1.75.0",
+    "@tailwindcss/vite": "^4.3.5",
     "@wikiblog/dto": "workspace:*",
     "@wikiblog/shared": "workspace:*",
     "@wikiblog/types": "workspace:*",
     "markdown-it": "^15.0.3",
     "nuxt": "4.6.4",
-    "sanitize-html": "^2.18.2"
+    "sanitize-html": "^2.18.2",
+    "tailwindcss": "^4.3.5"
   },
   "devDependencies": {
     "@types/markdown-it": "^14.2.0",

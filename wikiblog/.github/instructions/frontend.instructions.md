@@ -14,3 +14,5 @@ paths:
 - 의미에 맞는 HTML, 입력 라벨, 오류 안내, 키보드 조작과 모바일·데스크톱 화면을 확인한다.
 - 서버 전용 자격 증명이나 DB 엔티티를 웹에 포함하지 않는다. 사용자 콘텐츠는 안전하게 렌더링한다.
 - 관련 정상·실패 흐름을 테스트하고 이용 가능한 타입 검사와 브라우저 검증을 수행한다. 브라우저를 사용할 수 없으면 명시한다.
+- 스타일은 `app/assets/css/main.css`의 기존 클래스와 Tailwind v4 유틸리티를 함께 쓴다. Tailwind는 preflight 없이 theme·utilities 레이어만 가져오고, 색·반경·컨트롤 높이는 main.css 변수를 `@theme inline`으로 연결한 토큰(`text-accent`, `border-line`, `rounded-control`, `h-control` 등)을 쓴다. 버튼은 `.button` 계열을 재사용한다.
+- 아이콘은 `@lucide/vue`(구 `lucide-vue-next`) 컴포넌트를 import한다. 장식 아이콘은 `aria-hidden="true"`, 아이콘만 있는 버튼에는 `aria-label`을 둔다.

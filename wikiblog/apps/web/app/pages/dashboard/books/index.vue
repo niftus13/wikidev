@@ -5,6 +5,7 @@ import { bookPath, spacePath } from '~/utils/paths';
 import { characterCount, SPACE_DESCRIPTION_LIMIT } from '~/utils/space';
 
 useSeoMeta({ title: '내 책 관리 — WikiBlog', robots: 'noindex' });
+const currentUser = useCurrentUser();
 const session = ref<SessionResponse | null>(null);
 const books = ref<BookDto[]>([]);
 const loading = ref(true);
@@ -110,13 +111,16 @@ async function load() {
     const list = await $fetch<BookDto[]>('/api/v1/me/books');
     session.value = current;
     books.value = list;
+    currentUser.set(current);
     if (route.query.space === 'edit' && !spaceEditing.value) {
       loading.value = false;
       await openSpaceEditor();
     }
   } catch (cause) {
     session.value = null;
-    loadError.value = apiErrorStatus(cause) === 401 ? 'login' : 'error';
+    const status = apiErrorStatus(cause);
+    if (status === 401) currentUser.set(null);
+    loadError.value = status === 401 ? 'login' : 'error';
   } finally {
     loading.value = false;
   }
@@ -180,23 +184,6 @@ async function remove(book: BookDto) {
     busy.value = false;
   }
 }
-async function logout() {
-  if (busy.value || !session.value) return;
-  busy.value = true;
-  actionError.value = '';
-  try {
-    await $fetch('/api/v1/auth/logout', { method: 'POST', headers: { 'X-CSRF-Token': session.value.csrfToken }, body: {} });
-    session.value = null;
-    books.value = [];
-    spaceEditing.value = false;
-    loadError.value = 'login';
-    notice.value = '로그아웃했습니다.';
-  } catch (cause) {
-    actionError.value = describeError(cause);
-  } finally {
-    busy.value = false;
-  }
-}
 </script>
 
 <template>
@@ -215,7 +202,6 @@ async function logout() {
     </div>
     <div v-else-if="loadError" class="state" role="alert">계정 또는 책을 불러오지 못했습니다. <button class="link-button" @click="load()">다시 시도</button></div>
     <template v-else-if="session">
-      <div class="dashboard-account"><span>@{{ session.space.handle }}</span><button class="link-button" type="button" :disabled="busy || !!formMode || spaceEditing || spaceBusy" @click="logout">로그아웃</button></div>
       <section class="editor-panel space-panel" aria-labelledby="space-heading">
         <div class="space-panel-heading">
           <h2 id="space-heading">내 공간</h2>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ArrowUpRight, BookOpen } from '@lucide/vue';
 import type { PublicBookDto } from '@wikiblog/dto';
 import { bookPath, spacePath } from '~/utils/paths';
 
@@ -36,13 +37,13 @@ useSeoMeta({ title: 'WikiBlog — 책으로 만나는 지식', description: '공
       <div v-else-if="!books?.length" class="state">아직 공개된 책이 없습니다.</div>
       <div v-else class="book-grid">
         <article v-for="book in books" :key="book.id" class="book-card">
-          <div class="book-icon" aria-hidden="true">▤</div>
+          <div class="book-icon" aria-hidden="true"><BookOpen class="size-5" /></div>
           <div class="book-card-content">
             <NuxtLink class="card-owner owner-link" :to="spacePath(book.handle)">@{{ book.handle }}</NuxtLink>
             <h3><NuxtLink class="card-link" :to="bookPath(book.handle, book.slug)">{{ book.title }}</NuxtLink></h3>
             <p>{{ book.description || '소개가 아직 작성되지 않았습니다.' }}</p>
           </div>
-          <span class="card-arrow" aria-hidden="true">↗</span>
+          <ArrowUpRight class="card-arrow size-4 shrink-0" aria-hidden="true" />
         </article>
       </div>
     </section>
