@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import type { BookDto, OwnedTocDto, PageClassificationDto, PageDraftDto, PageVersionDto, PublishPageRequest, RestorePageRequest, SessionResponse, UpdatePageRequest } from '@wikiblog/dto';
+import type { BookDto, OwnedTocDto, PageClassificationDto, PageDraftDto, PageVersionDto, PublishPageRequest, RestorePageRequest, SessionResponse, UnpublishPageResponse, UpdatePageRequest } from '@wikiblog/dto';
 import { apiErrorStatus } from '~/utils/apiError';
+import { dragHasFiles, filesFromDataTransfer } from '~/utils/imageUpload';
 import { renderMarkdown } from '~/utils/markdown';
 import { pagePath } from '~/utils/paths';
+import { publishedDescendantCount } from '~/utils/toc';
 
 definePageMeta({ key: (route) => route.path });
 usePageMeta({ title: '페이지 편집', noindex: true });
@@ -32,6 +34,18 @@ const bodyBytes = computed(() => new TextEncoder().encode(form.body).length);
 const rendered = computed(() => preview.value ? renderMarkdown(form.body) : '');
 const selectedVersion = computed(() => versions.value.find((version) => version.id === selectedVersionId.value));
 const renderedVersion = computed(() => selectedVersion.value ? renderMarkdown(selectedVersion.value.body) : '');
+const bodyInput = ref<HTMLTextAreaElement | null>(null);
+const dropActive = ref(false);
+const images = useImageUpload({
+  getBody: () => form.body,
+  setBody: (value) => { form.body = value; },
+  csrfToken: () => session.value?.csrfToken,
+});
+const confirmingUnpublish = ref(false);
+const unpublishCount = ref<number | null>(null);
+const unpublishError = ref('');
+const unpublishButton = ref<HTMLButtonElement | null>(null);
+const unpublishConfirmButton = ref<HTMLButtonElement | null>(null);
 
 async function load() {
   loading.value = true;
@@ -71,7 +85,7 @@ function message(cause: unknown, action: 'save' | 'publish' | 'restore') {
   return '요청을 처리하지 못했습니다. 입력을 보관하고 다시 시도해 주세요.';
 }
 async function save() {
-  if (busy.value || !session.value || !draft.value || !dirty.value || bodyBytes.value > 12000) return;
+  if (busy.value || images.uploading.value || !session.value || !draft.value || !dirty.value || bodyBytes.value > 12000) return;
   busy.value = true;
   error.value = '';
   notice.value = '';
@@ -84,6 +98,7 @@ async function save() {
     form.title = updated.title;
     form.body = updated.body;
     notice.value = '초안을 저장했습니다. 공개하려면 발행하세요.';
+    images.clearMessages();
     if (historyOpen.value) await refreshVersions();
   } catch (cause) {
     error.value = message(cause, 'save');
@@ -159,7 +174,7 @@ async function restore() {
   }
 }
 async function publish() {
-  if (busy.value || !session.value || !draft.value || dirty.value) return;
+  if (busy.value || images.uploading.value || !session.value || !draft.value || dirty.value) return;
   busy.value = true;
   error.value = '';
   notice.value = '';
@@ -170,8 +185,95 @@ async function publish() {
     });
     published.value = true;
     notice.value = '저장된 초안을 발행했습니다.';
+    images.clearMessages();
   } catch (cause) {
     error.value = message(cause, 'publish');
+  } finally {
+    busy.value = false;
+  }
+}
+function insertImages(files: File[]) {
+  if (busy.value || !files.length) return;
+  const input = bodyInput.value;
+  const start = input?.selectionStart ?? form.body.length;
+  const end = input?.selectionEnd ?? start;
+  const cursor = images.add(files, start, end);
+  if (cursor === null || !input) return;
+  // v-model이 textarea 값을 바꾼 뒤 커서를 넣은 글자 뒤로 옮긴다.
+  void nextTick(() => {
+    input.focus();
+    input.setSelectionRange(cursor, cursor);
+  });
+}
+function onBodyPaste(event: ClipboardEvent) {
+  const files = filesFromDataTransfer(event.clipboardData);
+  // 글자만 있는 붙여넣기는 기본 동작 그대로 둔다.
+  if (!files.length) return;
+  event.preventDefault();
+  insertImages(files);
+}
+function onBodyDragOver(event: DragEvent) {
+  if (!dragHasFiles(event.dataTransfer)) return;
+  // 파일을 놓아도 브라우저가 파일을 열어 입력을 잃지 않도록 항상 기본 동작을 막는다.
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = busy.value ? 'none' : 'copy';
+  dropActive.value = !busy.value;
+}
+function onBodyDragLeave() {
+  dropActive.value = false;
+}
+function onBodyDrop(event: DragEvent) {
+  dropActive.value = false;
+  const files = filesFromDataTransfer(event.dataTransfer);
+  // 글자를 끌어다 놓는 기본 동작은 유지한다.
+  if (!files.length) return;
+  event.preventDefault();
+  if (busy.value) return;
+  const input = bodyInput.value;
+  // 놓은 위치가 아니라 현재 커서 위치에 넣는다(브라우저마다 놓은 위치를 알 수 없음). 포커스가 없으면 끝에 넣는다.
+  if (input && document.activeElement !== input) input.setSelectionRange(form.body.length, form.body.length);
+  insertImages(files);
+}
+async function openUnpublish() {
+  if (busy.value || !published.value) return;
+  confirmingUnpublish.value = true;
+  unpublishError.value = '';
+  unpublishCount.value = null;
+  try {
+    const toc = await $fetch<OwnedTocDto>(`/api/v1/me/books/${bookId}/toc`);
+    unpublishCount.value = publishedDescendantCount(toc.pages, pageId);
+  } catch {
+    unpublishCount.value = null; // 수를 알 수 없어도 발행 취소는 할 수 있다(문구만 바뀐다).
+  }
+  await nextTick();
+  unpublishConfirmButton.value?.focus();
+}
+function closeUnpublish() {
+  confirmingUnpublish.value = false;
+  unpublishError.value = '';
+  void nextTick(() => unpublishButton.value?.focus());
+}
+async function unpublish() {
+  if (busy.value || !session.value || !published.value) return;
+  busy.value = true;
+  unpublishError.value = '';
+  error.value = '';
+  notice.value = '';
+  try {
+    const result = await $fetch<UnpublishPageResponse>(`/api/v1/pages/${pageId}/unpublish`, {
+      method: 'POST', headers: { 'X-CSRF-Token': session.value.csrfToken }, body: {},
+    });
+    published.value = false;
+    confirmingUnpublish.value = false;
+    const descendants = result.unpublishedPageIds.filter((id) => id !== pageId).length;
+    notice.value = !result.unpublishedPageIds.length
+      ? '이미 발행되지 않은 페이지입니다. 상태를 갱신했습니다.'
+      : `발행을 취소했습니다${descendants ? ` (하위 페이지 ${descendants}개 포함)` : ''}. 초안과 이력은 그대로이며 다시 발행할 수 있습니다.`;
+  } catch (cause) {
+    const status = apiErrorStatus(cause);
+    unpublishError.value = status === 401 || status === 403
+      ? '세션이 만료되었거나 인증 정보가 변경되었습니다. 새 탭에서 로그인한 뒤 다시 시도해 주세요.'
+      : status === 404 ? '페이지를 찾을 수 없거나 관리 권한이 없습니다.' : '발행을 취소하지 못했습니다. 다시 시도해 주세요.';
   } finally {
     busy.value = false;
   }
@@ -181,12 +283,16 @@ function canLeave() {
     error.value = '요청이 처리되는 동안 기다려 주세요.';
     return false;
   }
+  if (images.uploading.value) {
+    error.value = '이미지 업로드가 끝날 때까지 기다려 주세요.';
+    return false;
+  }
   return !(dirty.value || classificationChanged.value) || window.confirm('저장하지 않은 변경 사항이 있습니다. 이 화면을 나가시겠습니까?');
 }
 onBeforeRouteLeave(canLeave);
 onBeforeRouteUpdate(canLeave);
 function warnBeforeUnload(event: BeforeUnloadEvent) {
-  if (dirty.value || classificationChanged.value || busy.value) event.preventDefault();
+  if (dirty.value || classificationChanged.value || busy.value || images.uploading.value) event.preventDefault();
 }
 onMounted(() => window.addEventListener('beforeunload', warnBeforeUnload));
 onBeforeUnmount(() => window.removeEventListener('beforeunload', warnBeforeUnload));
@@ -209,18 +315,53 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', warnBeforeUnloa
       <form class="editor-form page-editor" @submit.prevent="save">
         <label for="page-title">제목</label>
         <input id="page-title" v-model="form.title" maxlength="200" :disabled="busy" required>
-        <label for="page-body">본문 (Markdown)</label>
-        <textarea id="page-body" v-model="form.body" rows="18" :disabled="busy" aria-describedby="page-body-help" />
+        <div class="editor-toolbar">
+          <label for="page-body">본문 (Markdown)</label>
+          <ImageUploadButton :uploading="images.uploading.value" :disabled="busy" controls="page-body" @select="insertImages" />
+        </div>
+        <textarea
+          id="page-body"
+          ref="bodyInput"
+          v-model="form.body"
+          rows="18"
+          :class="{ 'drop-active': dropActive }"
+          :disabled="busy"
+          aria-describedby="page-body-help page-body-image-help"
+          @paste="onBodyPaste"
+          @dragover="onBodyDragOver"
+          @dragleave="onBodyDragLeave"
+          @drop="onBodyDrop"
+        />
         <p id="page-body-help" class="field-help" :class="{ 'form-error': bodyBytes > 12000 }">본문 {{ bodyBytes }} / 12000바이트. 전체 요청 크기는 16KB로 제한됩니다.</p>
+        <p id="page-body-image-help" class="field-help">이미지는 버튼, 붙여넣기, 끌어다 놓기로 커서 위치에 넣습니다. PNG·JPEG·WebP·GIF, 2MB 이하.</p>
+        <p class="image-upload-status" role="status">{{ images.statusText.value }}</p>
+        <div v-if="images.errors.value.length" class="form-error" role="alert">
+          <p v-for="(item, index) in images.errors.value" :key="index" class="image-upload-error">{{ item }}</p>
+          <NuxtLink v-if="images.needsLogin.value" class="text-link" to="/login" target="_blank">새 탭에서 로그인</NuxtLink>
+        </div>
         <p v-if="error" class="form-error" role="alert">{{ error }} <NuxtLink v-if="error.includes('세션이 만료')" class="text-link" to="/login" target="_blank">새 탭에서 로그인</NuxtLink></p>
         <p v-if="notice" class="form-success" role="status">{{ notice }}</p>
         <div class="form-actions">
-          <button class="button button-primary" type="submit" :disabled="busy || !dirty || bodyBytes > 12000">초안 저장</button>
-          <button class="button button-secondary" type="button" :disabled="busy || dirty" @click="publish">{{ published ? '다시 발행' : '발행' }}</button>
+          <button class="button button-primary" type="submit" :disabled="busy || images.uploading.value || !dirty || bodyBytes > 12000">초안 저장</button>
+          <button class="button button-secondary" type="button" :disabled="busy || images.uploading.value || dirty" @click="publish">{{ published ? '다시 발행' : '발행' }}</button>
+          <button v-if="published" ref="unpublishButton" class="button button-secondary" type="button" :disabled="busy || confirmingUnpublish" :aria-expanded="confirmingUnpublish" @click="openUnpublish">발행 취소</button>
           <button class="button button-secondary" type="button" @click="preview = !preview">{{ preview ? '미리보기 닫기' : '미리보기' }}</button>
           <NuxtLink v-if="published" class="text-link" :to="pagePath(session.space.handle, book.slug, pageId)" target="_blank">공개 페이지 보기</NuxtLink>
         </div>
-        <p v-if="dirty" class="field-help">발행하려면 먼저 변경 사항을 저장하세요.</p>
+        <p v-if="images.uploading.value" class="field-help">이미지 업로드가 끝나면 저장·발행할 수 있습니다.</p>
+        <p v-else-if="dirty" class="field-help">발행하려면 먼저 변경 사항을 저장하세요.</p>
+        <div v-if="confirmingUnpublish && published" class="delete-confirm unpublish-confirm" role="group" aria-labelledby="unpublish-confirm-text">
+          <p id="unpublish-confirm-text">
+            <template v-if="unpublishCount === null">이 페이지와 발행된 하위 페이지가 공개에서 빠집니다.</template>
+            <template v-else-if="unpublishCount">이 페이지와 하위 발행 페이지 {{ unpublishCount }}개가 공개에서 빠집니다.</template>
+            <template v-else>이 페이지가 공개에서 빠집니다.</template>
+            초안과 이력은 그대로 남고 다시 발행할 수 있습니다.
+            <template v-if="dirty"> 저장하지 않은 본문 변경은 발행 취소와 관계없이 이 화면에 그대로 남습니다.</template>
+          </p>
+          <p v-if="unpublishError" class="form-error" role="alert">{{ unpublishError }} <NuxtLink v-if="unpublishError.includes('세션이 만료')" class="text-link" to="/login" target="_blank">새 탭에서 로그인</NuxtLink></p>
+          <button ref="unpublishConfirmButton" class="button button-danger" type="button" :disabled="busy" @click="unpublish">{{ busy ? '취소하는 중…' : '발행 취소 확인' }}</button>
+          <button class="button button-secondary" type="button" :disabled="busy" @click="closeUnpublish">닫기</button>
+        </div>
       </form>
       <section v-if="preview" class="editor-panel" aria-labelledby="preview-heading">
         <h2 id="preview-heading">미리보기</h2>

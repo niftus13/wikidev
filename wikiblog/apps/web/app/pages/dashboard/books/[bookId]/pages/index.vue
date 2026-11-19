@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import type { BookDto, CreatePageRequest, MovePageRequest, OwnedTocDto, OwnedTocEntryDto, PageDraftDto, SessionResponse } from '@wikiblog/dto';
+import type { BookDto, CreatePageRequest, MovePageRequest, OwnedTocDto, OwnedTocEntryDto, PageDraftDto, SessionResponse, UnpublishPageResponse } from '@wikiblog/dto';
 import { apiErrorStatus } from '~/utils/apiError';
-import { moveSiblings, possibleParents } from '~/utils/toc';
+import { moveSiblings, possibleParents, publishedDescendantCount } from '~/utils/toc';
 
 definePageMeta({ key: (route) => route.path });
 usePageMeta({ title: '페이지 관리', noindex: true });
@@ -16,6 +16,7 @@ const busy = ref(false);
 const creating = ref(false);
 const title = ref('');
 const deletingId = ref<string | null>(null);
+const unpublishingId = ref<string | null>(null);
 const movingId = ref<string | null>(null);
 const moveParent = ref('');
 const movePosition = ref(0);
@@ -85,6 +86,7 @@ function openMove(page: OwnedTocEntryDto) {
   moveParent.value = page.parentId ?? '';
   movePosition.value = page.position;
   deletingId.value = null;
+  unpublishingId.value = null;
   moveConflict.value = false;
   error.value = '';
   notice.value = '';
@@ -136,6 +138,40 @@ async function deletePage(id: string) {
     }
   } catch (cause) {
     error.value = message(cause);
+  } finally {
+    busy.value = false;
+  }
+}
+function openUnpublish(id: string) {
+  unpublishingId.value = id;
+  deletingId.value = null;
+  error.value = '';
+  notice.value = '';
+  void nextTick(() => document.getElementById(`unpublish-confirm-${id}`)?.focus());
+}
+function closeUnpublish(id: string) {
+  unpublishingId.value = null;
+  void nextTick(() => document.getElementById(`unpublish-${id}`)?.focus());
+}
+async function unpublishPage(id: string) {
+  if (busy.value || !session.value || !toc.value) return;
+  busy.value = true;
+  error.value = '';
+  notice.value = '';
+  try {
+    const result = await $fetch<UnpublishPageResponse>(`/api/v1/pages/${id}/unpublish`, {
+      method: 'POST', headers: { 'X-CSRF-Token': session.value.csrfToken }, body: {},
+    });
+    // 응답의 페이지만 미발행으로 바꾼다. 이미 미발행이었다면(빈 배열) 요청한 페이지 상태만 맞춘다.
+    const changed = new Set([id, ...result.unpublishedPageIds]);
+    toc.value = { ...toc.value, pages: toc.value.pages.map((page) => changed.has(page.id) ? { ...page, published: false } : page) };
+    unpublishingId.value = null;
+    const descendants = result.unpublishedPageIds.filter((item) => item !== id).length;
+    notice.value = !result.unpublishedPageIds.length
+      ? '이미 발행되지 않은 페이지입니다. 상태를 갱신했습니다.'
+      : `발행을 취소했습니다${descendants ? ` (하위 페이지 ${descendants}개 포함)` : ''}. 초안과 이력은 그대로이며 다시 발행할 수 있습니다.`;
+  } catch (cause) {
+    error.value = apiErrorStatus(cause) === 404 ? '페이지를 찾을 수 없거나 관리 권한이 없습니다. 목록을 새로고침해 주세요.' : message(cause);
   } finally {
     busy.value = false;
   }
@@ -208,7 +244,8 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', warnBeforeUnloa
           <div class="managed-book-actions">
             <NuxtLink class="text-link" :to="`/dashboard/books/${bookId}/pages/${page.id}`">편집</NuxtLink>
             <button class="link-button" type="button" :disabled="busy || creating || !!movingId" @click="openMove(page)">이동</button>
-            <button class="link-button danger-link" type="button" :disabled="busy || creating || !!movingId" @click="deletingId = page.id; error = ''; notice = ''">삭제</button>
+            <button v-if="page.published" :id="`unpublish-${page.id}`" class="link-button" type="button" :disabled="busy || creating || !!movingId" :aria-expanded="unpublishingId === page.id" @click="openUnpublish(page.id)">발행 취소</button>
+            <button class="link-button danger-link" type="button" :disabled="busy || creating || !!movingId" @click="deletingId = page.id; unpublishingId = null; error = ''; notice = ''">삭제</button>
           </div>
           <form v-if="movingId === page.id" class="editor-form move-form" @submit.prevent="movePage">
             <p class="field-help">발행된 페이지는 모든 상위 페이지가 발행된 위치로만 이동할 수 있습니다.</p>
@@ -227,6 +264,16 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', warnBeforeUnloa
               <button class="button button-secondary" type="button" :disabled="busy" @click="movingId = null; moveConflict = false; error = ''">취소</button>
             </div>
           </form>
+          <div v-if="unpublishingId === page.id && page.published" class="delete-confirm" role="group" :aria-labelledby="`unpublish-text-${page.id}`">
+            <p :id="`unpublish-text-${page.id}`">
+              {{ publishedDescendantCount(toc.pages, page.id)
+                ? `이 페이지와 하위 발행 페이지 ${publishedDescendantCount(toc.pages, page.id)}개가 공개에서 빠집니다.`
+                : '이 페이지가 공개에서 빠집니다.' }}
+              초안과 이력은 그대로 남고 다시 발행할 수 있습니다.
+            </p>
+            <button :id="`unpublish-confirm-${page.id}`" class="button button-danger" type="button" :disabled="busy" @click="unpublishPage(page.id)">{{ busy ? '취소하는 중…' : '발행 취소 확인' }}</button>
+            <button class="button button-secondary" type="button" :disabled="busy" @click="closeUnpublish(page.id)">닫기</button>
+          </div>
           <div v-if="deletingId === page.id" class="delete-confirm">
             <p>이 페이지와 모든 하위 페이지가 삭제되며 복구할 수 없습니다. 삭제하시겠습니까?</p>
             <button class="button button-danger" type="button" :disabled="busy" @click="deletePage(page.id)">{{ busy ? '삭제 중…' : '삭제 확인' }}</button>
