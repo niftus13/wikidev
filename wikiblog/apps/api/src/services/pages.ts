@@ -1,4 +1,4 @@
-import type { CreatePageRequest, MovePageRequest, OwnedTocEntryDto, PageDraftDto, PageVersionDto, PublishPageRequest, RestorePageRequest, TocEntryDto, UpdatePageRequest } from '@wikiblog/dto';
+import type { CreatePageRequest, MovePageRequest, OwnedTocEntryDto, PageDraftDto, PageVersionDto, PublishPageRequest, RestorePageRequest, TocEntryDto, UnpublishPageResponse, UpdatePageRequest } from '@wikiblog/dto';
 import type { PageEntity, PageVersionEntity } from '@wikiblog/entities';
 import { PageRepository } from '../repositories/pages.ts';
 import { HttpError } from './errors.ts';
@@ -70,6 +70,9 @@ export class PageService {
   async delete(id: string, spaceId: string) { await this.repository.delete(id, spaceId); }
   async publish(id: string, spaceId: string, body: Input<PublishPageRequest>) {
     return toDto(await this.repository.publish(id, spaceId, revision(body.revision)));
+  }
+  async unpublish(id: string, spaceId: string): Promise<UnpublishPageResponse> {
+    return { id, unpublishedPageIds: await this.repository.unpublish(id, spaceId) };
   }
   async published(id: string) { return toDto(await this.repository.published(id)); }
   async ownedToc(bookId: string, spaceId: string) {

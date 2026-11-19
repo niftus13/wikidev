@@ -169,3 +169,19 @@ export interface PageClassificationDto {
   categoryId: string | null;
   tagIds: string[];
 }
+
+export interface UnpublishPageResponse {
+  /** 요청한 페이지 ID */
+  id: string;
+  /** 이번 요청으로 발행 취소된 페이지 ID(요청 페이지와 자손). 이미 미발행이면 빈 배열이다. */
+  unpublishedPageIds: string[];
+}
+
+export type ImageContentType = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+
+export interface ImageUploadResponse extends Identified {
+  /** 본문에 넣을 같은 출처 경로 `/api/v1/images/{id}` */
+  url: string;
+  contentType: ImageContentType;
+  byteSize: number;
+}

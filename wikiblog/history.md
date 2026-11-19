@@ -7,6 +7,7 @@
 
 **인증·책·페이지·분류 관리 API, 공개 독서 화면, 작성자 화면(인증·책·페이지·목차·이력·분류 관리)과
 사용자 공간 화면(`/@{handle}`, 내 공간 소개 편집)을 구현했습니다.**
+MVP 콘텐츠 백엔드(발행 취소·이미지 업로드/조회·플랫폼 카테고리 시드)를 구현했고, 발행 취소 버튼과 이미지 넣기 화면은 남아 있습니다.
 작성자 화면과 사용자 공간 화면은 실제 API 흐름(curl)·SSR 응답과 웹 타입 검사·빌드·단위 테스트로 확인했으나,
 작업 환경에 실행 가능한 브라우저가 없어 실제 브라우저 검증은 남아 있습니다.
 2026-11-19에 Tailwind·헤더 로그인·인증·검색 화면을 개편하면서 Playwright Docker 이미지로 주요 화면의 실제 브라우저 검증(스크린샷·키보드·모바일)을 처음 수행했습니다.
@@ -250,6 +251,20 @@
 - 발행 취소, 이미지 첨부(DB), 플랫폼 카테고리 시드 요구사항을 확정했습니다([요구사항](docs/checkpoints/mvp-content.md)). 구현은 아직 시작하지 않았습니다.
 - 강조색 토큰 `--accent`를 헤더 마크·파비콘 색 `#2663ce`로 통일했습니다. hover는 `#1d50a8`이고, 흰 배경 대비는 각각 5.59:1, 7.59:1입니다. 브랜드 마크도 하드코딩 대신 토큰을 씁니다.
 
+### 2026-11-19: MVP 콘텐츠 — 백엔드(발행 취소·이미지·카테고리 시드)
+
+- 발행 취소 `POST /api/v1/pages/{pageId}/unpublish`: 소유자·CSRF, 타 사용자 404, 미발행이면 빈 목록으로 200(멱등).
+  요청 페이지와 발행된 모든 자손의 `published_version_id`를 같은 트랜잭션에서 해제하고 `{ id, unpublishedPageIds }`를 반환합니다.
+  초안·이력·목차 revision은 바뀌지 않습니다. DTO `UnpublishPageResponse`.
+- 이미지: `006_images.sql`(`images`, MEDIUMBLOB, `space_id` 인덱스·FK). 업로드 `POST /api/v1/me/images`는 원본 바이트를 받고
+  (이 경로만 JSON 규칙 예외, Origin 유지, 세션·CSRF·선언 형식은 본문을 읽기 전에 확인), 매직 바이트로 PNG·JPEG·WebP·GIF를 판정합니다.
+  미허용 선언 415, 시그니처 불일치·빈 본문 400, 2 MiB 초과 413, 공간 총량 50 MiB 초과 409(공간 행 잠금으로 동시 업로드 직렬화), 성공 201
+  `{ id, url, contentType, byteSize }`(DTO `ImageUploadResponse`). 조회 `GET /api/v1/images/{id}`는 공개이며 형식 오류·없음·비활성 소유자 404,
+  저장 `Content-Type`·`nosniff`·`immutable` 캐시·`inline`·`Content-Length`·`CSP default-src 'none'; sandbox`를 보냅니다.
+- 웹 `renderMarkdown`: `img`는 `/api/v1/images/<uuid>`만 남기고 `loading="lazy"`·`decoding="async"`를 붙입니다. 외부·`data:`·프로토콜 상대 이미지는 제거합니다.
+- 플랫폼 카테고리: `007_platform_categories.sql`로 최상위 6개를 고정 UUID와 `ON DUPLICATE KEY UPDATE`로 시드했습니다.
+- 문서: README(발행 취소·이미지 API·오류 표·시드), 운영 배포 요구사항(nginx 이미지 경로 `client_max_body_size 3m`, 백업·용량 D-5).
+
 ## 마일스톤
 
 | 단계 | 상태 | 진행 내용과 남은 작업 |
@@ -258,7 +273,7 @@
 | 책·초안·이력 | 구현 완료 | 책 CRUD, 페이지 초안, revision 충돌, 이력·복원 |
 | 목차·발행·공개 읽기 | 구현 완료 | 목차 이동·순서, 발행본 분리와 공개 페이지 API |
 | 공개 검색·독서 화면 | 구현 완료 | 공개 검색 API, 책 목록·검색·독서 화면 |
-| 공개 분류 | 구현 완료 | 카테고리·태그 API와 공개 필터; 플랫폼 관리·시드 보류 |
+| 공개 분류 | 구현 완료 | 카테고리·태그 API와 공개 필터; 플랫폼 카테고리 6개 시드(2026-11-19), 관리 API 없음 |
 | 작성자 화면 | 구현 완료 (브라우저 검증 남음) | 인증·책·페이지 편집·발행, 목차 이동·이력 복원, 분류 관리 UI; 실제 API 흐름·타입 검사·빌드 확인, 실제 브라우저·키보드·모바일 확인 필요 |
 | 사용자 공간 화면 | 구현 완료 (브라우저 검증 남음) | 공간 책 목록 API, `/@{handle}` 공개 공간, 내 공간 소개 편집, `@handle` 링크; SSR 응답·실제 API·타입 검사·빌드 확인, 실제 브라우저·키보드·모바일 확인 필요 ([요구사항](docs/checkpoints/user-space-ui.md)) |
 | 운영 | 진행 중 (운영 1·2 완료) | 운영 1: 프록시 신뢰 경계와 요청 제한 구현·검증 ([요구사항](docs/checkpoints/ops-proxy-rate-limit.md)); 운영 2: CI 워크플로 구현, 로컬 재현과 GitHub Actions 첫 실행(PR) 통과 ([요구사항](docs/checkpoints/ops-ci.md)); 남은 작업: E2E, 운영 배포 요구사항 확정([요구사항](docs/checkpoints/ops-deploy.md), EC2·Docker·호스트 nginx·Let's Encrypt, CDN 보류; 리버스 프록시·CDN 신뢰 체인 재설계, HTTPS, 캐시 정책 — [운영 배포 체크리스트](docs/checkpoints/ops-deploy-checklist.md)), 백업·모니터링 |
@@ -384,6 +399,15 @@
   Vue 경고·페이지 오류 없음(콘솔 오류는 비로그인 세션 조회 401과 없는 책 문서 404의 리소스 로그뿐). 로그인 요청은 하지 않았습니다.
   헤드리스 브라우저는 탭을 그리지 않아 실제 탭 아이콘 모습과 iOS 홈 화면 아이콘은 확인하지 못했고, 로그인이 필요한 카테고리 관리의 깊이 들여쓰기와
   깊이 1 이상의 목차는 데이터가 없어 브라우저로 보지 못했습니다. `nuxt dev`(3201)에서 페이지 SSR 200과 새 제목·description을 확인했습니다.
+
+- MVP 콘텐츠 백엔드 체크포인트 (2026-11-19): `pnpm build:libs`, `pnpm typecheck`, 웹 타입 검사, API 빌드, 웹 빌드 통과.
+  API 단위 테스트 23개(통과 14, 건너뜀 9 — 통합), 웹 단위 테스트 31개 통과(렌더러: 내부 이미지 유지·lazy/async, 외부·프로토콜 상대·data:·javascript:·
+  변형 경로 제거, 외부 링크 유지, plain text 이미지 제외). worktree 스택(`-p wikiblog-wt`, 웹 3100·API 4100, 이미지 `wikiblog-wt-dev:local`)을
+  `--build`로 띄워 `006_images.sql`·`007_platform_categories.sql`이 적용되고 `migrate` 재실행 시 체크섬 검증만 하고 변경이 없음을, 시드 SQL을
+  다시 실행해도 플랫폼 카테고리가 6개임을 확인했습니다. 컨테이너 안 `INTEGRATION_TESTS=1` API 테스트 **23개 통과(실패 0, 건너뜀 0)**.
+  통합 테스트 가입 요청은 실행당 15회(제한 15분 20회)이며, 발행 취소 검증은 기존 발행 테스트 계정을 재사용했습니다. 첫 실행이 테스트 코드 오류로
+  실패한 뒤 카운터를 지우지 않고 만료(15분)를 기다려 전체를 다시 실행했습니다. 웹 프록시(3100) 경유로 비로그인 업로드 401, 이미지 조회 헤더 전달
+  (단 `Content-Length` 대신 chunked)을 확인했습니다. 화면(발행 취소 버튼, 이미지 넣기)과 브라우저 검증, nginx 실제 설정은 남아 있습니다.
 
 ## 남은 결정과 주의 사항
 

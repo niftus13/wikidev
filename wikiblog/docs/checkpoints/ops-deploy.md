@@ -82,7 +82,7 @@
 | --- | --- |
 | C-1 | `deploy/nginx/wikiblog.conf`(호스트 nginx용)를 작성한다. |
 | | 443(TLS, Let's Encrypt)과 80(HTTPS 리다이렉트, 인증서 갱신용 `/.well-known/acme-challenge/` 경로)을 둔다. |
-| | `proxy_pass http://127.0.0.1:3000`, 요청 본문 상한(API 16KB보다 여유 있게. 이미지 업로드 경로 `/api/v1/me/images`는 2MB 이상 — [mvp-content.md](mvp-content.md) B-8), 시간 제한(웹 30초 < nginx)을 설정한다. |
+| | `proxy_pass http://127.0.0.1:3000`, 요청 본문 상한(서버 기본 `client_max_body_size 64k` — API JSON 16KB보다 여유. 이미지 업로드는 `location = /api/v1/me/images`에서만 `client_max_body_size 3m`: API 상한 2 MiB(2,097,152바이트)보다 커야 상한 초과가 API의 JSON 413으로 일관되게 응답된다 — [mvp-content.md](mvp-content.md) B-8, 2026-11-19 확정), 시간 제한(웹 30초 < nginx)을 설정한다. |
 | C-2 | **클라이언트 IP 확정**: nginx가 첫 hop이므로 `$remote_addr`가 곧 클라이언트 주소이다. upstream에는 `proxy_set_header X-Forwarded-For $remote_addr;`로 **덮어쓴다**(`$proxy_add_x_forwarded_for` 금지). 클라이언트가 보낸 `X-Real-IP`, `Forwarded`는 지운다. |
 | C-3 | `Host`, `X-Forwarded-Proto https`, `Origin`, 쿠키를 그대로 전달한다. API의 Origin 검사가 `APP_ORIGIN`(https)과 맞는지 확인한다. |
 | C-4 | 캐시(8절 Q6): `/_nuxt/*`(해시 파일명)에만 긴 `Cache-Control`(`public, max-age=31536000, immutable`)을 붙인다. 그 밖의 경로는 nginx가 캐시하지 않고 캐시 헤더도 추가하지 않는다. API는 이미 `no-store`를 보낸다. |
@@ -100,6 +100,12 @@
 | D-3 | 런북 `deploy/README.md`를 작성한다. 다룰 내용은 다음과 같다. |
 | | 인스턴스 준비(Docker, Compose 플러그인, nginx, swap), 도메인·인증서(Let's Encrypt), 보안 그룹, 첫 배포, 정기 배포, 롤백, 로그 확인, 백업. |
 | D-4 | 최소 백업을 둔다. EBS 스냅샷 정책(DLM)이나 `mysqldump` 정기 실행 중 하나와, 복구 절차 초안을 쓴다. 정기 복구 연습과 모니터링은 운영 4에서 다룬다. |
+| D-5 | 이미지 운영 영향(2026-11-19 확정, [mvp-content.md](mvp-content.md) B-8)을 런북에 적는다. |
+| | 이미지는 MySQL `images` 테이블(MEDIUMBLOB)에 있으므로 `mysqldump`와 EBS 스냅샷에 그대로 포함된다. `mysqldump`는 `--single-transaction --hex-blob`으로 받고, 덤프 크기가 이미지만큼(hex 기준 약 2배) 커진다. |
+| | 용량 계획: 이미지 1장 최대 2 MiB, 공간당 최대 50 MiB. 디스크(EBS)는 `활성 공간 수 × 50 MiB`를 상한으로 보고 MySQL 데이터·binlog·덤프 보관분을 함께 잡는다. 실제 사용량은 `SELECT COUNT(*), SUM(byte_size) FROM images`로 확인한다. |
+| | 고아 이미지는 MVP에서 지우지 않으므로 사용량은 줄지 않는다. 정리 작업은 후속이다. |
+| | 운영자가 사용자를 비활성화(`users.status = 'disabled'`)하면 그 공간의 이미지 조회도 404가 된다. 이미지 응답은 `Cache-Control: public, max-age=31536000, immutable`이므로 브라우저 캐시에 남은 사본은 만료까지 보일 수 있다(CDN은 보류 상태라 공유 캐시는 없다). |
+| | nginx는 `/api/v1/me/images`만 `client_max_body_size 3m`로 두고 나머지는 기본 상한을 쓴다(C-1). |
 
 ### E. CI와 로컬 재현
 

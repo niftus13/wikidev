@@ -50,7 +50,8 @@ MySQL은 원본 데이터이며 Redis만으로 공개 상태나 발행 여부를
   재발행 전에는 기존 발행본을 보여줍니다.
 - revision을 검사해 오래된 저장은 409로 거부하고 사용자의 입력을 보존합니다.
 - 과거 버전 복원은 초안에 새 이력을 만들며 즉시 공개하지 않습니다.
-- 발행 취소 API는 보류했습니다. 향후 도입 시 공개 조회·검색과 캐시·색인에도 반영해야 합니다.
+- 발행 취소는 페이지 단위이며 발행된 하위 페이지도 같은 트랜잭션에서 함께 취소합니다. 초안과 이력은 남고,
+  다시 발행하면 현재 초안 revision으로 발행합니다. 캐시·색인이 없어 공개 조회·검색에 즉시 반영됩니다.
 - 관리 API는 매 요청마다 소유권을 확인합니다. 타인의 초안과 이력은 존재 여부를
   드러내지 않도록 404로 처리하는 방향을 제안합니다.
 
@@ -134,6 +135,9 @@ MySQL은 원본 데이터이며 Redis만으로 공개 상태나 발행 여부를
 | 관리 | `POST /api/v1/books/{id}/pages` | 초안 생성 |
 | 관리 | `PATCH /api/v1/pages/{id}` | revision 검사 후 초안 저장 |
 | 관리 | `POST /api/v1/pages/{id}/publish` | 현재 초안 발행 |
+| 관리 | `POST /api/v1/pages/{id}/unpublish` | 페이지와 하위 페이지 발행 취소 |
+| 관리 | `POST /api/v1/me/images` | 이미지 업로드(원본 바이트) |
+| 공개 | `GET /api/v1/images/{id}` | 업로드 이미지 조회 |
 | 관리 | `GET /api/v1/pages/{id}/versions` | 이력 조회 |
 | 관리 | `POST /api/v1/pages/{id}/restore` | 과거 버전을 초안으로 복원 |
 | 관리 | `PATCH /api/v1/books/{id}/toc` | 목차 이동·순서 변경 |
@@ -167,8 +171,11 @@ MySQL은 원본 데이터이며 Redis만으로 공개 상태나 발행 여부를
 
 ### 미결 사항
 
-- 사용자당 책 개수 제한과 책·페이지 발행 취소 방식
-- 이미지 첨부 및 신고·운영자 대응 범위
+2026-11-19 결정([docs/checkpoints/mvp-content.md](docs/checkpoints/mvp-content.md)): 페이지 단위 발행 취소와
+MySQL 이미지 첨부를 도입하고, 플랫폼 카테고리는 마이그레이션 시드로 관리합니다. 책 개수 제한·계정 기준 로그인 제한·
+신고 기능·삭제 복구 API는 두지 않습니다(운영자는 사용자 비활성화와 런북의 수동 절차로 대응).
+
+- 고아 이미지(본문에서 빠지거나 삭제된 페이지의 이미지) 정리 방식(후속)
 
 ## 개발 환경
 
@@ -369,6 +376,7 @@ revision 충돌·인증 오류 시 입력을 유지하며, 화면을 나가기 �
 | `GET /api/v1/me/books/{bookId}/toc` | 소유자의 전체 목차와 목차 revision |
 | `PATCH /api/v1/books/{bookId}/toc` | 페이지의 부모와 형제 사이 순서 변경 |
 | `POST /api/v1/pages/{pageId}/publish` | 현재 초안 revision을 검사해 발행 |
+| `POST /api/v1/pages/{pageId}/unpublish` | 페이지와 발행된 모든 자손의 발행 취소 |
 | `GET /api/v1/books/{bookId}/toc` | 발행된 페이지만 포함한 공개 목차 |
 | `GET /api/v1/pages/{pageId}` | 공개 발행본 조회 |
 
@@ -386,7 +394,13 @@ revision 충돌·인증 오류 시 입력을 유지하며, 화면을 나가기 �
 발행 요청은 `{ revision }`을 받으며 해당 revision의 이력을 공개본으로 지정합니다.
 상위 페이지가 모두 발행되어야 발행할 수 있고, 발행된 페이지를 미발행 부모 아래로
 이동할 수 없습니다. 발행 후 저장·복원한 초안은 재발행 전까지 공개본을 바꾸지 않습니다.
-발행 취소와 삭제 복구 API는 제공하지 않습니다. 독서 화면은 공개 Markdown을 렌더링할 때
+발행 취소는 본문 `{}`(JSON)로 요청하며 소유자·CSRF가 필요합니다. 다른 사용자의 페이지는 404입니다.
+요청한 페이지와 발행된 모든 자손의 공개본 지정을 같은 트랜잭션에서 해제하고
+`200 { "id": "<pageId>", "unpublishedPageIds": ["<pageId>", "<자손 ID>", ...] }`를 반환합니다.
+`unpublishedPageIds`는 이번 요청으로 취소된 페이지만 요청 페이지부터 얕은 깊이 순으로 담으며,
+이미 미발행이면 빈 배열로 200을 반환합니다(멱등). 초안·이력·목차 revision은 바뀌지 않고, 관리 목차의
+`published`, 공개 조회·목차·분류 조회, 검색과 분류 필터에서 즉시 빠집니다. 다시 발행하려면 상위부터
+기존 발행 API로 발행합니다. 삭제 복구 API는 제공하지 않습니다. 독서 화면은 공개 Markdown을 렌더링할 때
 HTML 입력을 비활성화하고 출력 HTML을 정제합니다.
 
 ### 공개 검색 API
@@ -431,8 +445,57 @@ HTML 입력을 비활성화하고 출력 HTML을 정제합니다.
 카테고리와 태그 이름은 최대 100자, 콘텐츠의 태그는 최대 50개입니다.
 하위 카테고리 또는 콘텐츠에 연결된 카테고리와 콘텐츠에 연결된 태그는 삭제할 수
 없습니다. 논리 삭제된 콘텐츠와 과거 페이지 이력의 연결도 삭제를 막습니다.
-플랫폼 카테고리는 조회만 가능하며 초기 데이터와 운영자 관리 API는 제공하지 않습니다.
+플랫폼 카테고리는 조회만 가능하며 운영자 관리 API는 제공하지 않습니다. 최상위 6개(개발, 데이터·AI, 디자인,
+비즈니스, 학습·교양, 일상·기타)를 `007_platform_categories.sql`이 고정 UUID
+(`8c1f0a00-0000-4000-8000-00000000000{1..6}`, 위 순서)로 시드하며 다시 실행해도 같은 결과가 됩니다.
+조회 순서는 기존 규칙대로 이름순입니다. 바꿀 때는 새 migration을 추가합니다(적용된 migration은 체크섬으로 검증).
 작성자 분류 관리 화면은 [작성자 분류 관리 화면](#작성자-분류-관리-화면)을 참고합니다.
+
+### 이미지 API
+
+이미지는 MySQL `images` 테이블(`006_images.sql`)에 원본 바이트로 저장합니다. 외부 저장소·리사이즈·썸네일은 없습니다.
+
+| 메서드·경로 | 동작 |
+| --- | --- |
+| `POST /api/v1/me/images` | 로그인한 사용자의 공간에 이미지 1장 업로드 |
+| `GET /api/v1/images/{id}` | 이미지 공개 조회(인증 불필요) |
+
+업로드는 JSON이 아니라 **원본 바이트**를 본문으로 보냅니다. 이 경로만 전역 JSON 규칙(`application/json`, 16KB)에서
+빠지며, Origin 검사는 같고, 세션·CSRF(`X-CSRF-Token`)와 선언 형식은 본문을 읽기 전에 확인합니다.
+`Content-Type`은 `image/png`, `image/jpeg`, `image/webp`, `image/gif` 중 하나이고, 서버가 파일 시그니처(매직 바이트)로
+실제 형식을 판정해 선언과 같을 때만 저장합니다. `Content-Encoding` 압축 본문은 받지 않습니다.
+성공하면 `201 { "id", "url": "/api/v1/images/{id}", "contentType", "byteSize" }`를 반환합니다.
+본문 Markdown에는 `![설명](/api/v1/images/{id})`로 넣습니다.
+
+| 상태 | 오류 메시지 | 조건 |
+| --- | --- | --- |
+| 401 | `Authentication required` | 세션 없음·만료 |
+| 403 | `Invalid origin` / `Invalid CSRF token` | Origin 불일치 / CSRF 토큰 없음·불일치 |
+| 415 | `Unsupported image type` | 선언 `Content-Type`이 허용 4종이 아님(SVG `image/svg+xml`, `application/json`, 없음 포함) |
+| 415 | `Unsupported request body encoding` | `Content-Encoding`으로 압축한 본문 |
+| 400 | `Image body is empty` | 빈 본문 |
+| 400 | `Image content does not match Content-Type` | 시그니처가 선언 형식과 다름(위장 파일, PNG로 선언한 SVG 등) |
+| 413 | `Request body too large` | 2 MiB(2,097,152바이트) 초과 |
+| 409 | `Image storage quota exceeded` | 업로드 후 공간 총량이 50 MiB(52,428,800바이트)를 넘음 |
+
+총량은 같은 공간의 업로드를 공간 행 잠금(`SELECT ... FOR UPDATE`)으로 직렬화한 트랜잭션 안에서 계산하므로,
+동시 업로드가 함께 상한을 넘기지 않습니다. 가입·로그인 요청 제한은 바뀌지 않았고 업로드 자체에는 요청 제한이 없습니다
+(남용은 크기·총량 상한으로 제한).
+
+조회는 UUID 형식이 아니거나(대문자 포함), 없거나, 소유자가 비활성(`users.status = 'disabled'`)이면 404(`Image not found`,
+`Cache-Control: no-store`)입니다. 성공 응답 헤더는 다음과 같습니다.
+
+- `Content-Type`: 저장한 형식, `Content-Length`, `Content-Disposition: inline`
+- `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`
+- `Cache-Control: public, max-age=31536000, immutable` (이미지는 수정·삭제 API가 없어 내용이 바뀌지 않습니다)
+
+웹 서버의 `/api` 프록시를 거치면 다른 헤더는 그대로 전달되지만 `Content-Length` 대신 chunked 전송이 됩니다(2026-11-19 확인).
+
+웹 Markdown 렌더러(`renderMarkdown`)는 `img`의 `src`가 정확히 `/api/v1/images/<소문자 UUID>`일 때만 남기고
+(`loading="lazy"`, `decoding="async"` 부여) 외부 http(s)·프로토콜 상대·`data:` 등 그 밖의 이미지는 alt까지 제거합니다.
+링크(`a`)의 외부 주소는 그대로 허용합니다. 업로드 후 본문에서 빠지거나 페이지가 삭제된 이미지(고아 이미지)는
+MVP에서 지우지 않습니다. 이미지 개별 삭제 API도 없습니다. 운영 영향(백업·디스크·nginx 본문 상한)은
+[운영 배포 요구사항](docs/checkpoints/ops-deploy.md)을 참고합니다.
 
 ### CI
 

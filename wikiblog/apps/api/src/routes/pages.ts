@@ -14,6 +14,7 @@ export function pageRoutes(controller: PageController): ExpressRouter {
   router.patch('/pages/:pageId', controller.update);
   router.get('/pages/:pageId/versions', controller.versions);
   router.post('/pages/:pageId/publish', controller.publish);
+  router.post('/pages/:pageId/unpublish', controller.unpublish);
   router.post('/pages/:pageId/restore', controller.restore);
   router.delete('/pages/:pageId', controller.delete);
   return router;

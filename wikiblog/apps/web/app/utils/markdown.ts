@@ -3,12 +3,26 @@ import sanitizeHtml from 'sanitize-html';
 
 const markdown = new MarkdownIt({ html: false, linkify: true });
 
+/** 본문 이미지로 허용하는 유일한 주소: 같은 출처의 업로드 이미지 `/api/v1/images/<uuid>`. */
+const INTERNAL_IMAGE = /^\/api\/v1\/images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+export function isInternalImageUrl(value: unknown): boolean {
+  return typeof value === 'string' && INTERNAL_IMAGE.test(value);
+}
+
 export function renderMarkdown(value: string): string {
   return sanitizeHtml(markdown.render(value), {
     allowedTags: [...sanitizeHtml.defaults.allowedTags, 'img', 'h1', 'h2', 'pre', 'code'],
-    allowedAttributes: { a: ['href', 'title'], img: ['src', 'alt', 'title'], code: ['class'] },
+    allowedAttributes: { a: ['href', 'title'], img: ['src', 'alt', 'title', 'loading', 'decoding'], code: ['class'] },
     allowedSchemes: ['http', 'https', 'mailto'],
-    allowedSchemesByTag: { img: ['http', 'https'] },
+    // 이미지는 스킴이 있는 주소(http/https/data 등)를 모두 거부하고, 아래 필터가 내부 경로만 남긴다.
+    allowedSchemesByTag: { img: [] },
+    allowProtocolRelative: false,
+    transformTags: {
+      img: (tagName, attribs) => ({ tagName, attribs: { ...attribs, loading: 'lazy', decoding: 'async' } }),
+    },
+    // 외부 이미지·잘못된 주소의 img는 alt를 포함해 통째로 제거한다.
+    exclusiveFilter: (frame) => frame.tag === 'img' && !isInternalImageUrl(frame.attribs.src),
   });
 }
 

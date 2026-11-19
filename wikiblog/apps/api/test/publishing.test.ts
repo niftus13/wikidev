@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import test from 'node:test';
 import mysql from 'mysql2/promise';
 import type { RowDataPacket } from 'mysql2';
-import type { OwnedTocDto, PageDraftDto, PageVersionDto, PublishedPageDto, TocEntryDto } from '@wikiblog/dto';
+import type { CategoryDto, OwnedTocDto, PageDraftDto, PageVersionDto, PublishedPageDto, SearchResultDto, TocEntryDto, UnpublishPageResponse } from '@wikiblog/dto';
 import { databaseOptions } from '../src/config.ts';
 
 test('publishing, hierarchy, ordering and public reads', { skip: process.env.INTEGRATION_TESTS !== '1' }, async () => {
@@ -112,6 +112,81 @@ test('publishing, hierarchy, ordering and public reads', { skip: process.env.INT
     assert.equal((await request(`/pages/${child.id}`)).status, 404);
     assert.equal((await request(`/me/pages/${child.id}`, 'GET', undefined, owner.cookie)).status, 404);
     assert.deepEqual((await publicToc()).map((p) => p.id), [sibling.id]);
+
+    // 발행 취소: 하위 발행 페이지까지 같은 트랜잭션에서 취소되고 공개 조회·목차·검색·분류 필터에서 바로 빠진다.
+    const platform = await (await request('/categories')).json() as CategoryDto[];
+    const category = platform[0];
+    assert.ok(category, 'platform categories are seeded');
+    assert.equal((await request(`/books/${book.id}/classification`, 'PATCH',
+      { platformCategoryId: category.id, spaceCategoryId: null, tagIds: [] }, owner.cookie, owner.csrf)).status, 200);
+    const marker = `unpub${suffix}`;
+    async function createMarked(title: string) {
+      const response = await request(`/books/${book.id}/pages`, 'POST', { title, body: `${marker} ${title}` }, owner.cookie, owner.csrf);
+      assert.equal(response.status, 201);
+      return await response.json() as PageDraftDto;
+    }
+    const upParent = await createMarked('Unpublish Parent');
+    const upChild = await createMarked('Unpublish Child');
+    const upGrandchild = await createMarked('Unpublish Grandchild');
+    const upDraftChild = await createMarked('Unpublish Draft Child');
+    revision = (await toc()).revision;
+    for (const [pageId, parentId] of [[upChild.id, upParent.id], [upGrandchild.id, upChild.id], [upDraftChild.id, upParent.id]] as const) {
+      const response = await move(revision, pageId, parentId, 0);
+      assert.equal(response.status, 200);
+      revision = (await response.json() as OwnedTocDto).revision;
+    }
+    for (const page of [upParent, upChild, upGrandchild]) assert.equal((await publish(page.id, 1)).status, 200);
+    async function searchIds(query: string) {
+      const response = await request(`/search?${query}`);
+      assert.equal(response.status, 200);
+      return (await response.json() as SearchResultDto[]).map((row) => row.id);
+    }
+    const published = [upParent.id, upChild.id, upGrandchild.id];
+    assert.deepEqual((await searchIds(`q=${marker}`)).sort(), [...published].sort());
+    for (const id of published) assert.ok((await searchIds(`categoryId=${category.id}`)).includes(id));
+    async function unpublish(id: string, auth = owner, csrf = auth.csrf) {
+      return request(`/pages/${id}/unpublish`, 'POST', {}, auth.cookie, csrf);
+    }
+    assert.equal((await unpublish(upParent.id, other)).status, 404);
+    assert.equal((await unpublish(foreign.id)).status, 404);
+    assert.equal((await unpublish(upParent.id, owner, '')).status, 403);
+    assert.equal((await request(`/pages/${upParent.id}/unpublish`, 'POST', {})).status, 401);
+    assert.equal((await unpublish('not-a-uuid')).status, 404);
+    assert.equal((await request(`/pages/${upParent.id}`)).status, 200);
+    const childOnly = await unpublish(upChild.id);
+    assert.equal(childOnly.status, 200);
+    assert.deepEqual(await childOnly.json() as UnpublishPageResponse, { id: upChild.id, unpublishedPageIds: [upChild.id, upGrandchild.id] });
+    assert.equal((await request(`/pages/${upParent.id}`)).status, 200);
+    assert.equal((await request(`/pages/${upGrandchild.id}`)).status, 404);
+    assert.equal((await publish(upChild.id, 1)).status, 200);
+    assert.equal((await publish(upGrandchild.id, 1)).status, 200);
+    const unpublished = await unpublish(upParent.id);
+    assert.equal(unpublished.status, 200);
+    assert.deepEqual(await unpublished.json() as UnpublishPageResponse, { id: upParent.id, unpublishedPageIds: published });
+    for (const id of published) {
+      assert.equal((await request(`/pages/${id}`)).status, 404);
+      assert.equal((await request(`/pages/${id}/classification`)).status, 404);
+    }
+    assert.equal((await publicToc()).some((entry) => published.includes(entry.id)), false);
+    const ownedAfter = await toc();
+    for (const id of [...published, upDraftChild.id]) assert.equal(ownedAfter.pages.find((entry) => entry.id === id)?.published, false);
+    assert.deepEqual(await searchIds(`q=${marker}`), []);
+    const categoryResults = await searchIds(`categoryId=${category.id}`);
+    assert.equal(categoryResults.some((id) => published.includes(id)), false);
+    assert.ok(categoryResults.includes(book.id), 'the book itself stays public');
+    const again = await unpublish(upParent.id);
+    assert.equal(again.status, 200);
+    assert.deepEqual(await again.json() as UnpublishPageResponse, { id: upParent.id, unpublishedPageIds: [] });
+    const draft2 = await (await request(`/me/pages/${upParent.id}`, 'GET', undefined, owner.cookie)).json() as PageDraftDto;
+    assert.equal(draft2.revision, 1);
+    assert.equal((await request(`/pages/${upParent.id}/versions`, 'GET', undefined, owner.cookie)).status, 200);
+    assert.equal((await publish(upChild.id, 1)).status, 409, 'child cannot be republished before its parent');
+    assert.equal((await request(`/pages/${upParent.id}`, 'PATCH', { revision: 1, title: 'Republished Parent', body: `${marker} again` }, owner.cookie, owner.csrf)).status, 200);
+    assert.equal((await publish(upParent.id, 2)).status, 200);
+    const republished = await (await request(`/pages/${upParent.id}`)).json() as PublishedPageDto;
+    assert.equal(republished.title, 'Republished Parent');
+    assert.deepEqual(await searchIds(`q=${marker}`), [upParent.id]);
+    assert.ok((await publicToc()).some((entry) => entry.id === upParent.id));
   } finally {
     const [users] = await pool.execute<RowDataPacket[]>('SELECT id FROM users WHERE email IN (?, ?)', emails);
     for (const user of users) {

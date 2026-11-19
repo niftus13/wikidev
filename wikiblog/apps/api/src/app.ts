@@ -17,6 +17,10 @@ import { bookRoutes } from './routes/books.ts';
 import { pageRoutes } from './routes/pages.ts';
 import { searchRoutes } from './routes/search.ts';
 import { classificationRoutes } from './routes/classifications.ts';
+import { IMAGE_UPLOAD_PATH, imageRoutes } from './routes/images.ts';
+import { ImageController } from './controllers/images.ts';
+import { ImageRepository } from './repositories/images.ts';
+import { ImageService } from './services/images.ts';
 import { AuthService } from './services/auth.ts';
 import type { RedisClient } from './services/auth.ts';
 import { HttpError } from './services/errors.ts';
@@ -46,7 +50,9 @@ export function createApp(pool: Pool, redis: RedisClient, config: SecurityConfig
   app.use('/api/v1', (request, _response, next) => {
     if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
       if (request.get('origin') !== config.origin) return next(new HttpError(403, 'Invalid origin'));
-      if (!request.is('application/json')) return next(new HttpError(415, 'Content-Type must be application/json'));
+      // 이미지 업로드만 원본 바이트를 받는다. Origin은 위에서 확인했고, 세션·CSRF·형식은 이미지 라우트가 본문을 읽기 전에 확인한다.
+      const imageUpload = request.method === 'POST' && request.path === IMAGE_UPLOAD_PATH;
+      if (!imageUpload && !request.is('application/json')) return next(new HttpError(415, 'Content-Type must be application/json'));
     }
     next();
   });
@@ -58,6 +64,7 @@ export function createApp(pool: Pool, redis: RedisClient, config: SecurityConfig
   app.use('/api/v1', pageRoutes(new PageController(new PageService(new PageRepository(pool)), auth)));
   app.use('/api/v1', searchRoutes(new SearchController(new SearchService(new SearchRepository(pool)))));
   app.use('/api/v1', classificationRoutes(new ClassificationController(new ClassificationService(new ClassificationRepository(pool)), auth)));
+  app.use('/api/v1', imageRoutes(new ImageController(new ImageService(new ImageRepository(pool)), auth)));
 
   const errors: ErrorRequestHandler = (error: unknown, _request, response, _next) => {
     if (error instanceof HttpError) {
@@ -70,6 +77,10 @@ export function createApp(pool: Pool, redis: RedisClient, config: SecurityConfig
     }
     if (error instanceof Error && 'status' in error && error.status === 413) {
       response.status(413).json({ error: 'Request body too large' });
+      return;
+    }
+    if (error instanceof Error && 'status' in error && error.status === 415) {
+      response.status(415).json({ error: 'Unsupported request body encoding' });
       return;
     }
     console.error('API request failed:', error);

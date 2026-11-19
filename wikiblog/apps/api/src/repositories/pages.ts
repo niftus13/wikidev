@@ -180,6 +180,26 @@ export class PageRepository {
     });
   }
 
+  /** 페이지와 모든 자손 중 발행된 페이지를 같은 트랜잭션에서 발행 취소하고, 취소한 ID를 요청 페이지부터 얕은 깊이 순으로 반환한다. */
+  async unpublish(id: string, spaceId: string) {
+    return transaction(this.pool, async (connection) => {
+      const page = await this.lockPage(connection, id, spaceId);
+      const rows = await this.tree(connection, page.book_id);
+      const unpublished: string[] = [];
+      const pending = [id];
+      while (pending.length) {
+        const current = pending.shift()!;
+        const node = rows.find((row) => row.id === current);
+        if (node?.published_version_id) unpublished.push(current);
+        pending.push(...rows.filter((row) => row.parent_id === current).map((row) => row.id));
+      }
+      for (const pageId of unpublished) {
+        await connection.execute('UPDATE pages SET published_version_id = NULL WHERE id = ?', [pageId]);
+      }
+      return unpublished;
+    });
+  }
+
   async published(id: string) {
     const [rows] = await this.pool.execute<PublishedRow[]>(`
       SELECT p.id, p.book_id, v.title, v.body, v.revision FROM pages p

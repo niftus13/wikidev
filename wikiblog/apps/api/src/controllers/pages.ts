@@ -52,6 +52,10 @@ export class PageController {
     const body: Partial<Record<keyof PublishPageRequest, unknown>> = request.body ?? {};
     response.json(await this.service.publish(id(request, 'pageId'), current.space_id, body));
   };
+  unpublish = async (request: Request, response: Response) => {
+    const current = await this.auth.mutationSession(request);
+    response.json(await this.service.unpublish(id(request, 'pageId'), current.space_id));
+  };
   published = async (request: Request, response: Response) => {
     response.json(await this.service.published(id(request, 'pageId')));
   };

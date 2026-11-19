@@ -68,3 +68,12 @@ export interface TagEntity extends Identified {
   name: string;
   normalized_name: string;
 }
+
+export interface ImageEntity extends Identified {
+  space_id: string;
+  content_type: string;
+  byte_size: number;
+  sha256: string;
+  data: Uint8Array;
+  created_at: Date;
+}

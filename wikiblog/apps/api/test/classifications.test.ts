@@ -125,3 +125,23 @@ test('classification ownership, snapshots, hierarchy and public filters', { skip
     await pool.end();
   }
 });
+
+test('platform categories are seeded with six fixed top-level entries', { skip: process.env.INTEGRATION_TESTS !== '1' }, async () => {
+  const response = await fetch('http://127.0.0.1:4000/api/v1/categories');
+  assert.equal(response.status, 200);
+  const rows = await response.json() as Array<{ id: string; name: string; parentId: string | null; scope: string }>;
+  const expected = new Map([
+    ['8c1f0a00-0000-4000-8000-000000000001', '개발'],
+    ['8c1f0a00-0000-4000-8000-000000000002', '데이터·AI'],
+    ['8c1f0a00-0000-4000-8000-000000000003', '디자인'],
+    ['8c1f0a00-0000-4000-8000-000000000004', '비즈니스'],
+    ['8c1f0a00-0000-4000-8000-000000000005', '학습·교양'],
+    ['8c1f0a00-0000-4000-8000-000000000006', '일상·기타'],
+  ]);
+  assert.equal(rows.length, 6);
+  for (const row of rows) {
+    assert.equal(row.name, expected.get(row.id));
+    assert.equal(row.parentId, null);
+    assert.equal(row.scope, 'platform');
+  }
+});
