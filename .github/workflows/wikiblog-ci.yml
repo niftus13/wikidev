@@ -185,3 +185,77 @@ jobs:
         run: |
           if [ -n "${API_PID:-}" ]; then kill "$API_PID" 2> /dev/null || true; fi
           docker rm --force --volumes wikiblog-ci-mysql > /dev/null 2>&1 || true
+
+  production-image:
+    name: 운영 이미지 빌드·실행 스모크
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      COMPOSE_PROJECT_NAME: wikiblog-ci
+      WIKIBLOG_IMAGE: wikiblog-ci
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # 레지스트리 push는 하지 않는다. 운영과 같은 compose.prod.yaml·deploy.sh로 빌드 → 마이그레이션 → 기동 → 헬스 체크를 한다.
+      - name: Write one-time production environment file
+        run: |
+          env_file="$RUNNER_TEMP/wikiblog-ci.env"
+          echo "WIKIBLOG_ENV_FILE=${env_file}" >> "$GITHUB_ENV"
+          app_password="$(openssl rand -hex 24)"
+          root_password="$(openssl rand -hex 24)"
+          echo "::add-mask::${app_password}"
+          echo "::add-mask::${root_password}"
+          umask 077
+          {
+            echo "APP_DOMAIN=ci.wikiblog.invalid"
+            echo "MYSQL_PASSWORD=${app_password}"
+            echo "MYSQL_ROOT_PASSWORD=${root_password}"
+            echo "WIKIBLOG_IMAGE=${WIKIBLOG_IMAGE}"
+          } > "$env_file"
+      - name: Build production images and start the stack with deploy.sh
+        env:
+          WIKIBLOG_DEPLOY_NO_CHECKOUT: "1"
+        run: deploy/deploy.sh "ci-${GITHUB_SHA::12}"
+      - name: Smoke test the production build through the published port
+        run: |
+          base=http://127.0.0.1:3000
+          check() {
+            local path="$1" expected="$2" status
+            status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 10 "$base$path")"
+            echo "$path -> $status"
+            if [ "$status" != "$expected" ]; then
+              echo "::error::$path returned $status (expected $expected)"
+              return 1
+            fi
+          }
+          # 운영 빌드 SSR(아이콘이 있는 화면 포함, 지난 @lucide/vue SSR 500 같은 결함을 잡는다)
+          check / 200
+          check /login 200
+          check /register 200
+          check /search 200
+          check /dashboard/books 200
+          check /@nobody 404
+          check /api/health 200
+          asset="$(curl --silent --fail "$base/" | grep -oE '/_nuxt/[A-Za-z0-9._-]+\.(js|css)' | head -n 1)"
+          if [ -z "$asset" ]; then
+            echo "::error::No /_nuxt asset found in the home page HTML"
+            exit 1
+          fi
+          check "$asset" 200
+          # 운영 포트는 loopback 3000에만 공개되고 API·MySQL·Redis는 공개되지 않는다.
+          docker ps --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME" --format '{{.Names}} {{.Ports}}'
+          if docker ps --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME" --format '{{.Ports}}' | grep -E '0\.0\.0\.0|:::|->4000|->3306|->6379'; then
+            echo "::error::A production port is published beyond 127.0.0.1:3000"
+            exit 1
+          fi
+      - name: Show production logs on failure
+        if: failure()
+        env:
+          WIKIBLOG_TAG: unused
+        run: docker compose -p "$COMPOSE_PROJECT_NAME" --env-file "$WIKIBLOG_ENV_FILE" -f compose.prod.yaml logs --no-color --tail 200 || true
+      - name: Remove the production stack
+        if: always()
+        env:
+          WIKIBLOG_TAG: unused
+        run: docker compose -p "$COMPOSE_PROJECT_NAME" --env-file "$WIKIBLOG_ENV_FILE" -f compose.prod.yaml down --volumes --remove-orphans || true

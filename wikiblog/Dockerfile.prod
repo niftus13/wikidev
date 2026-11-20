@@ -1,0 +1,53 @@
+# 운영 이미지 (요구사항: docs/checkpoints/ops-deploy.md A-1). 개발용 Dockerfile·compose.yaml과 별개다.
+#   docker build -f Dockerfile.prod --target web -t wikiblog-web:<태그> .
+#   docker build -f Dockerfile.prod --target api -t wikiblog-api:<태그> .
+# 보통은 deploy/deploy.sh가 compose.prod.yaml로 두 target을 빌드한다.
+
+# ── 빌드: 의존성 설치 → libs → 웹 nuxt build → API 운영 의존성만 따로 모은다 ──
+FROM node:24-alpine AS build
+
+RUN npm install --global pnpm@10.30.0
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/api/package.json apps/api/package.json
+COPY apps/web/package.json apps/web/package.json
+COPY libs/dto/package.json libs/dto/package.json
+COPY libs/entities/package.json libs/entities/package.json
+COPY libs/shared/package.json libs/shared/package.json
+COPY libs/types/package.json libs/types/package.json
+RUN pnpm install --frozen-lockfile
+
+COPY . .
+RUN pnpm build:libs \
+  && pnpm --filter @wikiblog/web build \
+  # API는 TypeScript 소스를 Node 24 타입 제거로 그대로 실행한다(CI 통합 job과 같은 node src/index.ts).
+  # pnpm deploy로 운영 의존성(express·mysql2·redis)과 빌드한 libs(dist)만 /prod/api에 모은다.
+  && pnpm --filter @wikiblog/api deploy --prod --legacy /prod/api \
+  && rm -rf /prod/api/test /prod/api/dist /prod/api/tsconfig.json
+
+# ── 웹: nuxt build 산출물(.output)만. 의존성은 .output/server/node_modules에 추적되어 들어 있다 ──
+FROM node:24-alpine AS web
+
+ENV NODE_ENV=production \
+    HOST=0.0.0.0 \
+    PORT=3000
+WORKDIR /app
+# 파일은 root 소유로 두고 non-root(node, uid 1000)로 실행한다(실행 중 산출물을 바꿀 수 없다).
+COPY --from=build /app/apps/web/.output ./.output
+USER node
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+
+# ── API: src·migrations·package.json·운영 node_modules(libs dist 포함)만 ──
+FROM node:24-alpine AS api
+
+ENV NODE_ENV=production \
+    HOST=0.0.0.0 \
+    PORT=4000
+WORKDIR /app
+COPY --from=build /prod/api ./
+USER node
+EXPOSE 4000
+# 마이그레이션은 서비스 시작 명령에 넣지 않는다. 배포 스크립트가 같은 이미지로 일회성 실행한다(node src/migrate.ts).
+CMD ["node", "src/index.ts"]

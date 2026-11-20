@@ -1,6 +1,6 @@
 # 개발 기록 및 체크포인트
 
-기준: 2026-11-19. 이 문서는 현재까지의 구현과 이후 작업을 구분합니다.
+기준: 2026-11-20. 이 문서는 현재까지의 구현과 이후 작업을 구분합니다.
 상세 실행 방법과 API 계약은 [README.md](./README.md)를 참고합니다.
 
 ## 현재 위치
@@ -11,7 +11,7 @@ MVP 콘텐츠 백엔드(발행 취소·이미지 업로드/조회·플랫폼 카
 작성자 화면과 사용자 공간 화면은 실제 API 흐름(curl)·SSR 응답과 웹 타입 검사·빌드·단위 테스트로 확인했으나,
 작업 환경에 실행 가능한 브라우저가 없어 실제 브라우저 검증은 남아 있습니다.
 2026-11-19에 Tailwind·헤더 로그인·인증·검색 화면을 개편하면서 Playwright Docker 이미지로 주요 화면의 실제 브라우저 검증(스크린샷·키보드·모바일)을 처음 수행했습니다.
-운영은 프록시 신뢰 경계와 요청 제한(운영 1), CI 워크플로(운영 2, GitHub Actions 실행 통과)를 구현했고 E2E·운영 배포·백업은 남아 있습니다.
+운영은 프록시 신뢰 경계와 요청 제한(운영 1), CI 워크플로(운영 2, GitHub Actions 실행 통과), 운영 배포 구성(운영 이미지·Compose·호스트 nginx·배포 스크립트·런북, 로컬 재현)을 구현했고, 실제 EC2 배포와 E2E·모니터링은 남아 있습니다.
 사용자 공간 화면 요구사항은 [docs/checkpoints/user-space-ui.md](docs/checkpoints/user-space-ui.md)에 있습니다.
 완료한 작성자 화면 요구사항은 [docs/checkpoints/author-management-ui.md](docs/checkpoints/author-management-ui.md)에 있습니다.
 
@@ -283,6 +283,32 @@ MVP 콘텐츠 백엔드(발행 취소·이미지 업로드/조회·플랫폼 카
 - 스타일: main.css에 `.editor-toolbar`, `.page-editor textarea.drop-active`, `.image-upload-status`, `.image-upload-error`, `.unpublish-confirm`
   (인라인 스타일 없음). `.markdown-body img { max-width: 100%; height: auto; }`는 기존 규칙을 그대로 씁니다.
 
+### 2026-11-20: 운영 배포 구현
+
+요구사항: [docs/checkpoints/ops-deploy.md](docs/checkpoints/ops-deploy.md) 4절 A~E. 실제 EC2 배포는 사용자가 [런북](deploy/README.md)으로 진행합니다.
+
+- A. 운영 이미지·Compose: `Dockerfile.prod`(빌드 단계 → target `web`은 `.output`만, `api`는 `pnpm deploy --prod`로 모은 `src`·`migrations`·운영 의존성·libs `dist`;
+  Node 24 alpine, `node` 사용자, 파일은 root 소유). `compose.prod.yaml`(web만 `127.0.0.1:3000`, api·mysql·redis 비공개, 전 서비스 `restart: unless-stopped`·
+  헬스 체크·json-file 로그 순환, web·api 읽기 전용 루트·`cap_drop: ALL`·`no-new-privileges`·`init`, `COOKIE_SECURE=true`·`APP_ORIGIN=https://<APP_DOMAIN>`,
+  API 시작 명령에 마이그레이션 없음, MySQL 이름 있는 볼륨, web은 `web-api` 네트워크 하나와 고정 게이트웨이 `WEB_GATEWAY_IP`), `.env.production.example`.
+  `.gitignore`에 `.env.production`·`.deploy/`, `.dockerignore`에 `.env.*`·`.claude`(심볼릭 링크) 추가. 개발용 `Dockerfile`·`compose.yaml`은 바꾸지 않았습니다.
+- B. 웹 신뢰 체인: `WEB_TRUST_PROXY`(런타임 `NUXT_WEB_TRUST_PROXY`). API `TRUST_PROXY`와 같은 허용 규칙(단위 테스트가 두 파서를 같은 값으로 대조), 문자열이 아닌 값
+  (Nuxt가 `true`·숫자로 해석한 값)도 거부, 잘못된 값이면 Nitro 플러그인이 시작 시 실패시킵니다. 소켓 주소가 목록에 있을 때만 `proxy-addr`(Express와 같은 라이브러리, 웹 의존성 추가)로
+  XFF 오른쪽부터 신뢰하지 않는 첫 주소를 골라 그 하나로 XFF를 다시 씁니다(IP가 아니면 소켓 주소). 미설정이면 기존 동작 그대로이고, 개발 서버 첫 hop도 같은 값을 따릅니다.
+  API `TRUST_PROXY`·요청 제한 로직은 바꾸지 않았습니다.
+- C. `deploy/nginx/wikiblog.conf`: 첫 hop으로 `X-Forwarded-For $remote_addr` 덮어쓰기, `X-Real-IP`·`Forwarded`·`X-Forwarded-Host/Port` 제거, 443 TLS 1.2+·HSTS·Let's Encrypt 경로,
+  80 리다이렉트와 `/.well-known/acme-challenge/`, 모르는 Host 거부(80은 444, 443은 `ssl_reject_handshake`), 본문 상한 64k·`location = /api/v1/me/images`만 3m,
+  시간 제한 60초(웹 30초보다 김), `/_nuxt/`만 `public, max-age=31536000, immutable`(upstream 값은 숨김).
+- D. `deploy/deploy.sh <ref>`: 체크아웃(로컬 변경 시 중단) → 커밋 12자리 태그로 빌드 → MySQL·Redis 대기 → 새 이미지 일회성 `migrate`(실패 시 중단) → `up -d --wait` →
+  `/api/health`·SSR `/` 확인 → 실패 시 이전 태그 이미지로 롤백(git도 이전 커밋으로). `flock`으로 동시 배포 방지, 본문을 함수로 감싸 체크아웃 중 스크립트 변경에 안전.
+  런북 `deploy/README.md`: 권장 구성(t3.medium·Ubuntu 24.04·SSM·deploy key·데이터 EBS 분리·Elastic IP·swap), 보안 그룹·`ss -ltnp` 확인, 인스턴스 준비, 인증서 발급·자동 갱신 hook,
+  첫·정기 배포, 롤백·스키마 호환 원칙, 로그, DB 비밀번호 변경(ALTER USER 후 `.env.production`), 사용자 비활성화·이미지 수동 삭제·사용량 SQL, 백업(DLM + `mysqldump --hex-blob` cron, 복구 초안), 디스크 확인.
+- E. CI `production-image` job: 일회용 비밀번호 환경 파일 → `deploy.sh`로 운영 이미지 빌드(push 없음)·마이그레이션·기동 → 공개 포트로 SSR 6개 경로·`/api/health`·`/_nuxt` 자산 확인,
+  3000 외 포트 공개 시 실패, 스택·볼륨 삭제. 기존 job은 바꾸지 않았습니다.
+- 문서: README(실행 절의 운영 배포 개요·`WEB_TRUST_PROXY`, CI job, 디렉토리, 낡은 "운영 방안 미구현"·"리버스 프록시와 CDN을 두므로" 문장 수정), 요구사항 수용 기준 체크.
+- 발견한 한계: 웹이 Docker 게이트웨이를 믿으므로 호스트 프로세스뿐 아니라 **같은 호스트의 다른 Docker 네트워크 컨테이너**도 웹 컨테이너 주소로 직접 접속하면
+  게이트웨이 주소로 SNAT되어 XFF를 위조할 수 있습니다(로컬 재현에서 확인). 운영 인스턴스에는 이 스택 외의 컨테이너를 두지 않는 것을 런북 전제로 적었습니다.
+
 ## 마일스톤
 
 | 단계 | 상태 | 진행 내용과 남은 작업 |
@@ -294,7 +320,7 @@ MVP 콘텐츠 백엔드(발행 취소·이미지 업로드/조회·플랫폼 카
 | 공개 분류 | 구현 완료 | 카테고리·태그 API와 공개 필터; 플랫폼 카테고리 6개 시드(2026-11-19), 관리 API 없음 |
 | 작성자 화면 | 구현 완료 (브라우저 검증 남음) | 인증·책·페이지 편집·발행, 목차 이동·이력 복원, 분류 관리 UI, 발행 취소·이미지 넣기(2026-11-19, Playwright 검증); 실제 API 흐름·타입 검사·빌드 확인, 실제 브라우저·키보드·모바일 확인 필요 |
 | 사용자 공간 화면 | 구현 완료 (브라우저 검증 남음) | 공간 책 목록 API, `/@{handle}` 공개 공간, 내 공간 소개 편집, `@handle` 링크; SSR 응답·실제 API·타입 검사·빌드 확인, 실제 브라우저·키보드·모바일 확인 필요 ([요구사항](docs/checkpoints/user-space-ui.md)) |
-| 운영 | 진행 중 (운영 1·2 완료) | 운영 1: 프록시 신뢰 경계와 요청 제한 구현·검증 ([요구사항](docs/checkpoints/ops-proxy-rate-limit.md)); 운영 2: CI 워크플로 구현, 로컬 재현과 GitHub Actions 첫 실행(PR) 통과 ([요구사항](docs/checkpoints/ops-ci.md)); 남은 작업: E2E, 운영 배포 요구사항 확정([요구사항](docs/checkpoints/ops-deploy.md), EC2·Docker·호스트 nginx·Let's Encrypt, CDN 보류; 리버스 프록시·CDN 신뢰 체인 재설계, HTTPS, 캐시 정책 — [운영 배포 체크리스트](docs/checkpoints/ops-deploy-checklist.md)), 백업·모니터링 |
+| 운영 | 진행 중 (운영 1·2 완료, 운영 배포 구현·로컬 재현 완료) | 운영 1: 프록시 신뢰 경계와 요청 제한 구현·검증 ([요구사항](docs/checkpoints/ops-proxy-rate-limit.md)); 운영 2: CI 워크플로 구현, 로컬 재현과 GitHub Actions 첫 실행(PR) 통과 ([요구사항](docs/checkpoints/ops-ci.md)); 운영 배포: 운영 이미지·Compose, 웹 `WEB_TRUST_PROXY` 신뢰 체인, 호스트 nginx 설정, 배포·롤백 스크립트, 런북, CI 운영 이미지 job 구현과 로컬 재현(2026-11-20, [요구사항](docs/checkpoints/ops-deploy.md), [런북](deploy/README.md)); 남은 작업: 사용자의 실제 EC2 첫 배포와 결과 기록, CI 운영 이미지 job의 GitHub 실행 확인, E2E, 모니터링·정기 복구 연습(운영 4), CDN([체크리스트](docs/checkpoints/ops-deploy-checklist.md)) |
 
 ## 다음 구현에 적용할 결정 사항
 
@@ -442,6 +468,27 @@ MVP 콘텐츠 백엔드(발행 취소·이미지 업로드/조회·플랫폼 카
   스크린샷은 작업 세션 스크래치패드(`shots-mvp/`)에만 있습니다. 실제 파일 선택 대화상자·OS 클립보드·실제 마우스 끌어다 놓기와 운영 빌드에서의 화면,
   nginx 실제 설정은 확인하지 않았습니다.
 
+- 운영 배포 체크포인트 (2026-11-20): `pnpm install --frozen-lockfile`(웹에 `proxy-addr` 2.0.8·`@types/proxy-addr` 추가, lockfile 갱신), `pnpm build:libs`,
+  `pnpm typecheck`, API 빌드, 웹 타입 검사·빌드 통과. API 단위 테스트 23개(통과 14, 건너뜀 9 — 통합, API 코드 변경 없음), 웹 단위 테스트 **47개 통과**
+  (신뢰 체인 6개 추가: 미설정 기존 동작, 신뢰 hop XFF 채택·IPv4-mapped, 비신뢰 연결 XFF 무시, 위조 다단 XFF·비IP 값, trust-all·형식 오류 거부와 API 파서 대조, 개발 첫 hop 공존).
+  운영 빌드(`.output`)를 호스트에서 echo API에 연결해 `NUXT_WEB_TRUST_PROXY` 미설정·비신뢰 주소면 소켓 주소, 신뢰 주소면 XFF의 클라이언트 주소 하나가 전달되고
+  `*`·`true`·`0.0.0.0/0`이면 서버가 시작하지 않음을 확인했습니다. `nuxt dev`도 미설정 127.0.0.1·설정 시 198.51.100.7로 같은 결과였습니다.
+  `docker compose -f compose.prod.yaml config` 통과, 운영 이미지 빌드(web 254MB·api 273MB, `node` 사용자, 읽기 전용 루트, api `node_modules`는 express·mysql2·redis·libs만).
+  actionlint 1.7.12 오류 0개, shellcheck 0.11.0(`deploy.sh`) 0개, `nginx -t`(nginx 1.28.3 컨테이너·호스트) 통과. 개발 `Dockerfile`은 별도 태그로 빌드만 확인하고 지웠습니다.
+  로컬 재현(Docker Desktop 29.9.2, 프로젝트 `wikiblog-prodtest`, 웹 `127.0.0.1:3310`, 대역 `10.231.0.16/29`, 이미지 `wikiblog-prodtest-*`): `deploy.sh`로 빌드·마이그레이션 7개·기동,
+  nginx 1.28 컨테이너를 host 네트워크로 띄워 호스트 nginx 역할(실제 `wikiblog.conf`를 포트·도메인만 바꿔 사용, 자체 서명 인증서), 클라이언트 컨테이너 3개(10.231.1.11~13).
+  ① 실패 로그인이 `auth-rate:login:10.231.1.11`·`.12`·`.13`으로 나뉨 ② 위조 XFF·`X-Real-IP`·`Forwarded`·게이트웨이 주소를 넣은 XFF로도 키가 바뀌지 않음(위조값 키 없음)
+  ③ 외부 역할 컨테이너에서 호스트의 3310·3000·4000·3306·6379 연결 불가, API·MySQL·Redis 컨테이너 주소 직접 연결 불가, `docker ps` 공개 포트는 `127.0.0.1:3310`뿐
+  — 단 웹 컨테이너 주소 직접 연결(10.231.0.22:3000)은 열려 있고 게이트웨이로 SNAT되어 위조 XFF가 신뢰됨(`auth-rate:login:5.5.5.5`)을 확인해 런북 전제로 기록
+  ④ HTTPS에서 가입 201(`Secure; HttpOnly; SameSite=Lax`), 세션 200, CSRF 없음·잘못된 Origin·http Origin 403, 책 생성 201, 홈·공간·책 SSR 200(새 책 표시), 로그아웃 CSRF 없음 403·정상 204·이후 세션 401
+  ⑤ `/_nuxt/*.css`만 `public, max-age=31536000, immutable`(없는 `/_nuxt` 파일 404는 헤더 없음), `/`·`/login`·`/favicon.svg`는 캐시 헤더 없음, `/api/health`는 API의 `no-store`, 모든 응답 HSTS,
+  80 → 301 `https://`, acme 경로 응답, 모르는 Host·IP 직접 HTTPS 거부, TLS 1.1 거부·1.2 허용
+  ⑥ 이미지 2,097,152바이트 201·조회 200(immutable), 2,097,153바이트 API JSON 413, 3.5MB nginx 413, 다른 경로 100KB nginx 413, 20KB JSON API JSON 413
+  ⑦ `deploy.sh`: 체크섬이 바뀐 마이그레이션 이미지는 migrate 실패로 중단(서비스 good1 유지), 시작하자마자 종료하는 웹 이미지는 헬스 실패 → good1로 자동 롤백(종료 코드 1, 헬스 ok).
+  Redis `auth-rate:*`는 읽기만 했고(새 Redis), 로그인 실패 7회·가입 1회만 썼습니다. 재현 컨테이너·네트워크·볼륨·이미지는 모두 지웠습니다.
+  API 통합 테스트는 API 코드 변경이 없어 다시 실행하지 않았습니다. 실행하지 못한 것: 실제 EC2·보안 그룹·Let's Encrypt 발급/갱신, `deploy.sh`의 git 체크아웃 경로(재현은 `WIKIBLOG_DEPLOY_NO_CHECKOUT=1`),
+  CI `production-image` job의 GitHub 실행, 브라우저 검증.
+
 ## 남은 결정과 주의 사항
 
 - **2026-11-19 결정(MVP 규모 유지)** — 상세는 [docs/checkpoints/mvp-content.md](docs/checkpoints/mvp-content.md):
@@ -463,7 +510,6 @@ MVP 콘텐츠 백엔드(발행 취소·이미지 업로드/조회·플랫폼 카
   `X-Forwarded-For`를 다시 쓰며, API는 `TRUST_PROXY`(Compose: 웹 컨테이너 고정 주소)만 신뢰해 클라이언트별로 집계합니다.
   웹 프록시 시간 제한(30초, 504)도 추가했습니다. 남은 주의: 로컬 개발에서는 호스트의 모든 요청이 Docker 게이트웨이
   주소 하나로 집계됩니다. **운영 환경은 EC2 안 Docker와 호스트 nginx(첫 hop)이며, CDN은 나중에 도입합니다(2026-11-18 결정).**
-  운영에서는 웹이 nginx 뒤에 있으므로 운영 배포 체크포인트에서 웹 `WEB_TRUST_PROXY`로 신뢰 체인을 구현합니다([요구사항](docs/checkpoints/ops-deploy.md)).
-  그 전까지 운영 1 구성은 개발 환경에서만 유효합니다. 운영 빌드의 SSR 내부 API 호출은 웹 서버 주소로 집계됩니다(요청 제한 대상 아님).
+  운영에서는 웹이 nginx 뒤에 있으므로 웹 `WEB_TRUST_PROXY`로 신뢰 체인을 구현했습니다(2026-11-20, 로컬 재현으로 클라이언트별 키 분리 확인). 운영 빌드의 SSR 내부 API 호출은 웹 서버 주소로 집계됩니다(요청 제한 대상 아님).
   같은 호스트에서 Compose 프로젝트를 여럿 띄우면 `.env`의 `WEB_API_SUBNET`·`WEB_PROXY_IP`를 서로 다르게 둬야 합니다.
-- 현재 Compose 설정은 개발용입니다. 운영용 이미지·HTTPS·nginx·캐시는 [운영 배포 요구사항](docs/checkpoints/ops-deploy.md)에서, CDN은 도입할 때 [체크리스트](docs/checkpoints/ops-deploy-checklist.md)에서 다룹니다.
+- 개발용은 `compose.yaml`, 운영용은 `compose.prod.yaml`·`Dockerfile.prod`·`deploy/`입니다(2026-11-20). 운영 신뢰 체인은 nginx(XFF 덮어쓰기) → 웹(`NUXT_WEB_TRUST_PROXY` = Docker 게이트웨이) → API(`TRUST_PROXY` = 웹 주소)이며, 게이트웨이를 믿는 전제(호스트 접근 통제, 호스트에 다른 컨테이너 없음)는 [런북](deploy/README.md) 2절에 있습니다. CDN은 도입할 때 [체크리스트](docs/checkpoints/ops-deploy-checklist.md)에서 다룹니다.

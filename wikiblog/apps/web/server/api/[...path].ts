@@ -1,4 +1,4 @@
-import { apiProxyHeaders, apiProxyTimeoutMs, isUpstreamTimeout, proxyClientAddress } from '../utils/apiProxy';
+import { apiProxyHeaders, apiProxyTimeoutMs, isUpstreamTimeout, proxyClientAddress, webTrustProxy } from '../utils/apiProxy';
 
 const PAYLOAD_METHODS = new Set(['PATCH', 'POST', 'PUT', 'DELETE']);
 
@@ -8,7 +8,9 @@ export default defineEventHandler(async (event) => {
   const timeoutMs = apiProxyTimeoutMs(config.apiProxyTimeoutMs);
   const url = getRequestURL(event);
   const request = event.node.req;
-  const clientAddress = proxyClientAddress(request.socket?.remoteAddress, request.headers['x-forwarded-for'], import.meta.dev);
+  // 운영에서 웹 앞에 nginx가 있으면 NUXT_WEB_TRUST_PROXY(그 hop의 주소)에서 온 연결만 X-Forwarded-For를 이어받는다.
+  const trust = webTrustProxy(config.webTrustProxy);
+  const clientAddress = proxyClientAddress(request.socket?.remoteAddress, request.headers['x-forwarded-for'], import.meta.dev, trust);
   const headers = apiProxyHeaders(request.headers, clientAddress);
   const raw = PAYLOAD_METHODS.has(event.method) ? await readRawBody(event, false) : undefined;
   const body = raw ? new Uint8Array(raw) : undefined;

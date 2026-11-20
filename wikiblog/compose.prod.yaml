@@ -1,0 +1,139 @@
+# 운영 Compose (요구사항: docs/checkpoints/ops-deploy.md A-2·A-3). 개발용은 compose.yaml이다.
+# 실행은 deploy/deploy.sh가 맡는다(런북: deploy/README.md). 직접 실행할 때:
+#   WIKIBLOG_TAG=<커밋> docker compose -p wikiblog-prod --env-file .env.production -f compose.prod.yaml up -d
+#
+# 신뢰 체인: 클라이언트 → 호스트 nginx(XFF = $remote_addr로 덮어씀) → 127.0.0.1:3000 → Docker 게이트웨이(WEB_GATEWAY_IP)
+#   → web(NUXT_WEB_TRUST_PROXY = 게이트웨이 하나만 신뢰) → web-api 네트워크 → api(TRUST_PROXY = WEB_PROXY_IP 하나만 신뢰)
+# web은 web-api 네트워크 하나에만 연결한다. 그래야 호스트에서 공개 포트로 들어온 연결의 출발 주소가 이 네트워크의
+# 게이트웨이 하나로 정해진다.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-app-hardening: &app-hardening
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  web:
+    <<: *app-hardening
+    image: ${WIKIBLOG_IMAGE:-wikiblog}-web:${WIKIBLOG_TAG:?Set WIKIBLOG_TAG (deploy.sh sets the commit)}
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+      target: web
+    restart: unless-stopped
+    environment:
+      NUXT_API_PROXY_TARGET: http://api:4000
+      NUXT_API_PROXY_TIMEOUT_MS: "30000"
+      # 호스트 nginx가 공개 포트로 접속할 때 보이는 Docker 게이트웨이 주소 하나만 앞단 프록시로 믿는다.
+      # 한계: 호스트에서 3000으로 오는 모든 연결(호스트의 다른 프로세스 포함)을 믿게 되므로 호스트 접근 통제가 전제다.
+      NUXT_WEB_TRUST_PROXY: ${WEB_GATEWAY_IP:-10.231.0.1}
+    ports:
+      # loopback에만 공개한다. 외부 공개는 호스트 nginx(80·443)만 한다.
+      - "127.0.0.1:${WEB_HOST_PORT:-3000}:3000"
+    networks:
+      web-api:
+        ipv4_address: ${WEB_PROXY_IP:-10.231.0.6}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      # 웹 서버와 /api 프록시, API까지 한 번에 확인한다. 공개 SSR(/)은 deploy.sh가 배포 때 확인한다.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging: *logging
+
+  api:
+    <<: *app-hardening
+    image: ${WIKIBLOG_IMAGE:-wikiblog}-api:${WIKIBLOG_TAG:?Set WIKIBLOG_TAG (deploy.sh sets the commit)}
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+      target: api
+    restart: unless-stopped
+    # 마이그레이션은 시작 명령에 넣지 않는다(deploy.sh가 서비스 교체 전에 일회성 컨테이너로 실행, ops-deploy.md Q5).
+    command: ["node", "src/index.ts"]
+    environment:
+      HOST: 0.0.0.0
+      PORT: "4000"
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: wikiblog
+      MYSQL_USER: wikiblog
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env.production}
+      REDIS_URL: redis://redis:6379
+      APP_ORIGIN: https://${APP_DOMAIN:?Set APP_DOMAIN in .env.production}
+      COOKIE_SECURE: "true"
+      # 웹 컨테이너 주소 하나만 신뢰한다(운영 1과 같음).
+      TRUST_PROXY: ${WEB_PROXY_IP:-10.231.0.6}
+    # 포트를 공개하지 않는다.
+    networks:
+      - default
+      - web-api
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging: *logging
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: wikiblog
+      MYSQL_USER: wikiblog
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env.production}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env.production}
+    volumes:
+      # 이름 있는 볼륨(Docker data-root가 있는 EBS). 백업: deploy/README.md "백업".
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysqladmin ping -h 127.0.0.1 -u root --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    logging: *logging
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    # 요청 제한 카운터만 둔다(재생성 가능). 디스크에 저장하지 않는다.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging: *logging
+
+networks:
+  default:
+  web-api:
+    ipam:
+      config:
+        # VPC CIDR과 겹치지 않는 대역. 게이트웨이를 고정해 web의 NUXT_WEB_TRUST_PROXY와 맞춘다.
+        - subnet: ${WEB_API_SUBNET:-10.231.0.0/29}
+          gateway: ${WEB_GATEWAY_IP:-10.231.0.1}
+
+volumes:
+  mysql-data:

@@ -1,13 +1,19 @@
 import type { IncomingMessage } from 'node:http';
 import tailwindcss from '@tailwindcss/vite';
-import { DEFAULT_API_PROXY_TIMEOUT_MS, resetForwardedFor } from './server/utils/apiProxy';
+import { DEFAULT_API_PROXY_TIMEOUT_MS, parseWebTrustProxy, resetForwardedFor } from './server/utils/apiProxy';
 import { SITE_DESCRIPTION, SITE_TITLE } from './app/utils/meta';
 
+// 웹 앞단 프록시(운영의 호스트 nginx) 주소. 비어 있으면 앞단을 믿지 않고 소켓 주소만 쓴다. 잘못된 값이면 시작 시 오류다.
+// 운영 빌드는 런타임 환경 변수 NUXT_WEB_TRUST_PROXY로 정한다(server/plugins/webTrustProxy.ts가 시작 시 검사).
+const webTrustProxyValue = process.env.NUXT_WEB_TRUST_PROXY ?? process.env.WEB_TRUST_PROXY ?? '';
+const devTrustProxy = parseWebTrustProxy(webTrustProxyValue);
+
 // nuxt dev 전용: 개발 서버(첫 hop)가 Nitro 워커로 요청을 넘기기 전에 위조 가능한 전달 헤더를 지우고
-// 실제 연결 주소로 X-Forwarded-For를 쓴다. 워커는 유닉스 소켓으로 연결되어 직접 주소를 알 수 없다.
+// 실제 연결 주소(앞단 프록시를 믿도록 설정했으면 그 규칙으로 고른 주소)로 X-Forwarded-For를 쓴다.
+// 워커는 유닉스 소켓으로 연결되어 직접 주소를 알 수 없다.
 const resetForwardedForHandler = Object.assign(
   (event: { node: { req: IncomingMessage } }) => {
-    resetForwardedFor(event.node.req.headers, event.node.req.socket?.remoteAddress);
+    resetForwardedFor(event.node.req.headers, event.node.req.socket?.remoteAddress, devTrustProxy);
   },
   { __is_handler__: true as const },
 );
@@ -52,6 +58,8 @@ export default defineNuxtConfig({
     apiProxyTarget: process.env.API_PROXY_TARGET || 'http://localhost:4000',
     // NUXT_API_PROXY_TIMEOUT_MS로 바꿀 수 있다. 넘으면 /api 프록시가 504를 반환한다.
     apiProxyTimeoutMs: DEFAULT_API_PROXY_TIMEOUT_MS,
+    // NUXT_WEB_TRUST_PROXY로 바꿀 수 있다. API TRUST_PROXY와 같은 형식(IP·CIDR·loopback·linklocal·uniquelocal, trust-all 거부).
+    webTrustProxy: webTrustProxyValue,
   },
   // /api는 개발·운영 모두 server/api/[...path].ts가 처리한다(nitro.devProxy를 쓰지 않는다).
   devServerHandlers: [{ route: '/', handler: resetForwardedForHandler as never }],

@@ -7,7 +7,7 @@
 > 회원가입·로그인·내 책 관리, 페이지 편집·발행, 목차 이동·이력 복원, 분류 관리 화면과
 > 사용자 공간 화면(`/@{handle}`, 내 공간 소개 편집)을 구현했습니다.
 > 작성자 화면과 사용자 공간 화면은 실제 API 흐름·SSR 응답과 타입 검사·빌드로 확인했으나 실제 브라우저 검증은 남아 있습니다.
-> 운영 방안은 아직 구현되지 않았습니다.
+> 운영 배포 구성(운영 이미지·Compose, 호스트 nginx, 배포·롤백 스크립트, 런북)을 구현해 로컬에서 재현했고, 실제 EC2 배포는 남아 있습니다.
 > 원본: [WikiDocs형 블로그 플랫폼 설계안](https://app.notion.com/p/WikiDocs-41a2d703a2f881a7985eff5af6845fb1?source=copy_link)
 
 ## 서비스 설계
@@ -179,7 +179,8 @@ MySQL 이미지 첨부를 도입하고, 플랫폼 카테고리는 마이그레�
 
 ## 개발 환경
 
-Nuxt, Express, MySQL, Redis를 Docker Compose로 실행합니다. 현재 설정은 개발용입니다.
+Nuxt, Express, MySQL, Redis를 Docker Compose로 실행합니다. `compose.yaml`·`Dockerfile`은 개발용이고,
+운영용은 `compose.prod.yaml`·`Dockerfile.prod`입니다([운영 배포](#운영-배포)).
 
 ### 실행
 
@@ -204,8 +205,14 @@ Nuxt 서버의 API 프록시 대상은 `API_PROXY_TARGET`으로 설정하며, �
   하나로 `X-Forwarded-For`를 새로 씁니다. 개발 서버에서는 Nitro 워커가 유닉스 소켓 뒤에 있어 주소를 직접 알 수
   없으므로, 개발 서버 첫 hop(`nuxt.config.ts`의 `devServerHandlers`)이 같은 방식으로 헤더를 다시 씁니다.
   SSR 내부 호출은 운영 빌드에서 연결 주소가 없어 `X-Forwarded-For` 없이 전달됩니다(웹 서버 주소로 집계).
-  이 구성은 웹이 첫 hop이라고 가정합니다. 운영에는 리버스 프록시와 CDN을 두므로, 신뢰 체인은
-  [운영 배포 체크리스트](docs/checkpoints/ops-deploy-checklist.md)에서 다시 설계합니다.
+  `WEB_TRUST_PROXY`가 없으면(개발 기본값) 웹이 첫 hop이라고 보고 이렇게 동작합니다. 운영에서는 호스트 nginx가 첫 hop이고
+  웹은 nginx 뒤에 있으므로 아래 `WEB_TRUST_PROXY`로 nginx 쪽 주소만 믿습니다. CDN은 아직 두지 않았습니다(도입 시
+  [운영 배포 체크리스트](docs/checkpoints/ops-deploy-checklist.md) 2·3절로 다시 설계).
+- 웹의 `WEB_TRUST_PROXY`(런타임 `NUXT_WEB_TRUST_PROXY`)는 `X-Forwarded-For`를 믿을 웹 앞단 프록시 주소입니다. 허용 값과
+  trust-all 거부 규칙은 API `TRUST_PROXY`와 같고(IP·CIDR·`loopback`·`linklocal`·`uniquelocal`, 잘못된 값이면 웹 서버가 시작하지 않음),
+  비어 있으면 지금처럼 소켓 주소만 씁니다. 소켓 주소가 이 목록에 있을 때만 XFF를 Express와 같은 `proxy-addr` 규칙으로 해석해
+  **오른쪽부터 신뢰하지 않는 첫 주소**를 클라이언트로 정하고, API에는 그 주소 하나로 XFF를 다시 씁니다(IP 형식이 아니면 소켓 주소).
+  목록 밖의 연결이 보낸 XFF는 버립니다. 개발 서버 첫 hop(`devServerHandlers`)도 같은 값을 따릅니다.
 - 프록시 시간 제한은 기본 30초이며 `NUXT_API_PROXY_TIMEOUT_MS`(밀리초, 양의 정수)로 바꿉니다.
   넘으면 `504 {"error":"Upstream timeout"}`을 반환합니다. 잘못된 값이면 `/api` 요청이 500으로 실패합니다.
   Compose에서는 `.env`의 `NUXT_API_PROXY_TIMEOUT_MS`가 웹 컨테이너로 전달됩니다.
@@ -227,6 +234,33 @@ Nuxt 서버의 API 프록시 대상은 `API_PROXY_TARGET`으로 설정하며, �
   로컬 개발에서는 호스트의 모든 브라우저 요청이 하나의 키를 공유합니다.
 MySQL과 Redis는 호스트에 포트를 공개하지 않습니다. `.env`의 MySQL 비밀번호는
 최초 데이터베이스 생성 시 적용되며, 기존 볼륨이 있으면 변경만으로 갱신되지 않습니다.
+
+### 운영 배포
+
+운영은 AWS EC2 인스턴스 안의 Docker이고, 호스트 nginx(Let's Encrypt)가 첫 hop입니다. CDN은 보류했습니다.
+절차(인스턴스 준비, 인증서, 보안 그룹, 첫·정기 배포, 롤백, 로그, 백업, 운영 SQL)는 런북 [deploy/README.md](deploy/README.md),
+요구사항은 [docs/checkpoints/ops-deploy.md](docs/checkpoints/ops-deploy.md)입니다.
+
+```text
+클라이언트 → nginx(443, XFF = $remote_addr로 덮어씀) → 127.0.0.1:3000 → web(NUXT_WEB_TRUST_PROXY = Docker 게이트웨이)
+          → api(TRUST_PROXY = web 고정 주소) → mysql·redis(비공개)
+```
+
+- `Dockerfile.prod`: 빌드 단계(`pnpm install --frozen-lockfile` → `build:libs` → `nuxt build` → `pnpm deploy --prod`로 API 운영 의존성만)와
+  실행 target `web`(`.output`만, `node .output/server/index.mjs`), `api`(`src`·`migrations`·운영 `node_modules`, `node src/index.ts`).
+  Node 24, `node` 사용자(non-root)로 실행하고 파일은 root 소유입니다.
+- `compose.prod.yaml`: web만 `127.0.0.1:3000`에 공개하고 api·mysql·redis는 공개하지 않습니다. 모든 서비스 `restart: unless-stopped`·
+  헬스 체크·로그 순환(json-file 10 MiB × 5), web·api는 읽기 전용 루트·`cap_drop: ALL`·`no-new-privileges`. API는 `COOKIE_SECURE=true`,
+  `APP_ORIGIN=https://<APP_DOMAIN>`, 마이그레이션은 시작 명령에 넣지 않습니다. MySQL 데이터는 이름 있는 볼륨 `mysql-data`입니다.
+  web은 `web-api` 네트워크 하나에만 연결하고 게이트웨이를 `WEB_GATEWAY_IP`(기본 `10.231.0.1`)로 고정해 `NUXT_WEB_TRUST_PROXY`와 맞춥니다.
+  호스트에서 공개 포트로 들어온 연결은 이 게이트웨이 주소로 보입니다(로컬 재현 실측: 대역 `10.231.0.16/29`에서 `10.231.0.17`).
+- `.env.production.example`: 도메인, 비밀번호, 네트워크 대역·게이트웨이·웹 주소. 인스턴스에서 `.env.production`(권한 600)으로 복사하며 저장소·이미지에 넣지 않습니다.
+- `deploy/nginx/wikiblog.conf`: 443 TLS 1.2+·HSTS, 80 리다이렉트와 `/.well-known/acme-challenge/`, 본문 상한 64k(이미지 업로드만 3m),
+  시간 제한 60초, `/_nuxt/*`만 `public, max-age=31536000, immutable`.
+- `deploy/deploy.sh <태그|커밋>`: 체크아웃 → 커밋 태그로 이미지 빌드 → 일회성 migrate(실패 시 중단) → `up -d --wait` → `/api/health`·SSR `/` 확인 →
+  실패 시 이전 태그 이미지로 롤백(스키마는 되돌리지 않음).
+- **신뢰의 한계**: 게이트웨이 주소를 믿으므로 호스트의 프로세스와 같은 호스트의 다른 Docker 네트워크 컨테이너(Docker가 게이트웨이 주소로 SNAT)는
+  `X-Forwarded-For`로 요청 제한 키를 바꿀 수 있습니다. 호스트 접근 통제(보안 그룹·SSH/SSM)와 호스트에 다른 컨테이너를 두지 않는 것이 전제입니다.
 
 ### 1단계 인증·공간 API
 
@@ -517,7 +551,7 @@ HTML 입력을 비활성화하고 출력 HTML을 정제합니다.
 (`loading="lazy"`, `decoding="async"` 부여) 외부 http(s)·프로토콜 상대·`data:` 등 그 밖의 이미지는 alt까지 제거합니다.
 링크(`a`)의 외부 주소는 그대로 허용합니다. 업로드 후 본문에서 빠지거나 페이지가 삭제된 이미지(고아 이미지)는
 MVP에서 지우지 않습니다. 이미지 개별 삭제 API도 없습니다. 운영 영향(백업·디스크·nginx 본문 상한)은
-[운영 배포 요구사항](docs/checkpoints/ops-deploy.md)을 참고합니다.
+[운영 배포 요구사항](docs/checkpoints/ops-deploy.md)과 [런북](deploy/README.md)을 참고합니다.
 
 ### CI
 
@@ -542,6 +576,11 @@ Git 루트가 `wikis/`이고 GitHub은 루트의 `.github/workflows/`만 읽으�
 - **건너뛴 테스트 금지**: 통합 job은 `node --test` 요약 줄(`ℹ tests N`, `ℹ skipped N`)을 읽어 요약이 없거나,
   실행한 테스트가 0개이거나, `skipped`가 0이 아니면 실패합니다. 환경 변수가 빠져 통합 테스트가 조용히 건너뛰는 것을
   막기 위해서입니다. 단위 job에서는 통합 테스트가 건너뛰는 것이 정상이므로 이 검사를 하지 않습니다.
+- **운영 이미지 job**(`production-image`): 일회용 비밀번호로 운영 환경 파일을 만들고 `deploy/deploy.sh`(체크아웃 없이 현재 커밋)로
+  `Dockerfile.prod` 두 target을 빌드(레지스트리 push 없음) → 마이그레이션 → `compose.prod.yaml` 기동 → 헬스 체크를 한 뒤,
+  공개 포트(`127.0.0.1:3000`)로 운영 빌드 SSR(`/`·`/login`·`/register`·`/search`·`/dashboard/books` 200, 없는 공간 404),
+  `/api/health`, `/_nuxt/*` 자산을 확인합니다(지난 `@lucide/vue` SSR 500 같은 운영 빌드 결함을 잡기 위함).
+  3000 외의 포트가 공개되면 실패하고, 끝나면 스택과 볼륨을 지웁니다.
 - 요청 제한은 끄지 않습니다. 실행마다 새 Redis를 쓰며, 현재 통합 테스트 한 번의 가입은 14회·로그인은 2회로
   IP별 15분 20회 제한 안에 있습니다. 가입하는 테스트를 늘려 20회를 넘으면 429로 실패하므로 그때 다시 검토합니다.
 
@@ -621,6 +660,7 @@ Docker 실행 중 실연동 테스트는
 ### 디렉토리
 
 ```text
+deploy/               # 운영 배포 스크립트·nginx 설정·런북(README.md)
 apps/
 ├── web/              # Nuxt 공개·작성자 화면
 └── api/
