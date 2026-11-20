@@ -1,0 +1,26 @@
+{
+  "name": "@wikiblog/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.ts",
+    "migrate": "node src/migrate.ts",
+    "test": "node --test test/*.test.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@wikiblog/dto": "workspace:*",
+    "@wikiblog/entities": "workspace:*",
+    "@wikiblog/shared": "workspace:*",
+    "@wikiblog/types": "workspace:*",
+    "express": "5.3.0",
+    "mysql2": "3.24.6",
+    "redis": "6.3.1"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/node": "24.19.2",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "@wikiblog/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "typecheck": "nuxt typecheck",
+    "test": "node --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@lucide/vue": "^1.75.0",
+    "@tailwindcss/vite": "^4.3.5",
+    "@wikiblog/dto": "workspace:*",
+    "@wikiblog/shared": "workspace:*",
+    "@wikiblog/types": "workspace:*",
+    "markdown-it": "^15.0.3",
+    "nuxt": "4.6.4",
+    "proxy-addr": "2.0.8",
+    "sanitize-html": "^2.18.2",
+    "tailwindcss": "^4.3.5"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.2.0",
+    "@types/proxy-addr": "^2.0.3",
+    "@types/sanitize-html": "^2.16.2",
+    "vue-tsc": "^3.3.14"
+  }
+}
